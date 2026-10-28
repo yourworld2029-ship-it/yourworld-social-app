@@ -174,6 +174,9 @@ test("Secret Lock suppresses an FCM call push before device lookup", async (t) =
       paths.push(url.pathname);
       if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
       if (url.pathname === "/rest/v1/calls") return jsonResponse([incomingCall()]);
+      if (url.pathname === "/rest/v1/user_settings") {
+        return jsonResponse([{ notification_preferences: { calls: true, messages: true } }]);
+      }
       if (url.pathname === "/rest/v1/conversations") {
         return jsonResponse([{ id: conversationId }]);
       }
@@ -203,7 +206,7 @@ test("Secret Lock suppresses an FCM call push before device lookup", async (t) =
   assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
   assert.ok(!paths.includes("/rest/v1/profiles"));
   assert.ok(!paths.includes("/token"));
-  assert.equal(paths.length, 4);
+  assert.equal(paths.length, 5);
 });
 
 test("FCM call pushes use data-only high-priority delivery with a short TTL", async (t) => {
@@ -223,6 +226,9 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
       const url = new URL(String(input));
       if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
       if (url.pathname === "/rest/v1/calls") return jsonResponse([incomingCall()]);
+      if (url.pathname === "/rest/v1/user_settings") {
+        return jsonResponse([{ notification_preferences: { calls: true, messages: true } }]);
+      }
       if (url.pathname === "/rest/v1/conversations") {
         captured.conversationFilter = url.searchParams.get("or");
         return jsonResponse([]);
@@ -408,6 +414,9 @@ test("chat message pushes are high priority, generic, and delivered to active An
       if (url.pathname === "/rest/v1/conversation_preferences") {
         return jsonResponse([{ is_muted: false, is_locked: false }]);
       }
+      if (url.pathname === "/rest/v1/user_settings") {
+        return jsonResponse([{ notification_preferences: { calls: true, messages: true } }]);
+      }
       if (url.pathname === "/rest/v1/profiles") {
         return jsonResponse([{ display_name: "Caller display name" }]);
       }
@@ -490,6 +499,9 @@ test("reported protected-chat captures send high-priority alerts only to the oth
             screen_recording_alert: true,
           },
         ]);
+      }
+      if (url.pathname === "/rest/v1/user_settings") {
+        return jsonResponse([{ notification_preferences: { calls: true, messages: true } }]);
       }
       if (url.pathname === "/rest/v1/profiles") {
         return jsonResponse([{ display_name: "Caller display name" }]);
@@ -606,6 +618,9 @@ test("muted chat message pushes are suppressed before FCM device lookup", async 
       if (url.pathname === "/rest/v1/conversation_preferences") {
         return jsonResponse([{ is_muted: true, is_locked: false }]);
       }
+      if (url.pathname === "/rest/v1/user_settings") {
+        return jsonResponse([{ notification_preferences: { calls: true, messages: true } }]);
+      }
       throw new Error(`Unexpected request: ${url.pathname}`);
     },
   );
@@ -624,4 +639,74 @@ test("muted chat message pushes are suppressed before FCM device lookup", async 
   assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
   assert.ok(!paths.includes("/rest/v1/profiles"));
   assert.ok(!paths.includes("/token"));
+});
+
+test("disabled call notifications suppress incoming-call pushes before conversation lookup", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: undefined });
+  const baseUrl = await startServer(t);
+  const paths: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: Parameters<typeof fetch>[0]) => {
+    const url = new URL(String(input));
+    paths.push(url.pathname);
+    if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+    if (url.pathname === "/rest/v1/calls") return jsonResponse([incomingCall()]);
+    if (url.pathname === "/rest/v1/user_settings") {
+      return jsonResponse([{ notification_preferences: { calls: false } }]);
+    }
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  });
+
+  const response = await nativeFetch(`${baseUrl}/calls/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ callId }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 0, suppressed: true });
+  assert.ok(!paths.includes("/rest/v1/conversations"));
+  assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
+});
+
+test("disabled message notifications suppress message pushes before device lookup", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: undefined });
+  const baseUrl = await startServer(t);
+  const paths: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: Parameters<typeof fetch>[0]) => {
+    const url = new URL(String(input));
+    paths.push(url.pathname);
+    if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+    if (url.pathname === "/rest/v1/messages") return jsonResponse([incomingMessage()]);
+    if (url.pathname === "/rest/v1/conversations") {
+      return jsonResponse([{
+        id: conversationId,
+        participant_one_id: callerId,
+        participant_two_id: receiverId,
+      }]);
+    }
+    if (url.pathname === "/rest/v1/conversation_preferences") {
+      return jsonResponse([{ is_muted: false, is_locked: false }]);
+    }
+    if (url.pathname === "/rest/v1/user_settings") {
+      return jsonResponse([{ notification_preferences: { messages: false } }]);
+    }
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  });
+
+  const response = await nativeFetch(`${baseUrl}/messages/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messageId }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 0, suppressed: true });
+  assert.ok(!paths.includes("/rest/v1/profiles"));
+  assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
 });

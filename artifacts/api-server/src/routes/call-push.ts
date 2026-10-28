@@ -44,6 +44,17 @@ type PreferenceRow = {
   screenshot_alert?: boolean | null;
   screen_recording_alert?: boolean | null;
 };
+type UserSettingsRow = {
+  notification_preferences?: Record<string, unknown> | null;
+};
+type NotificationSettingKey =
+  | "likes"
+  | "comments"
+  | "followers"
+  | "messages"
+  | "calls"
+  | "monetization"
+  | "system";
 type ProfileRow = {
   display_name?: string | null;
   username?: string | null;
@@ -71,6 +82,10 @@ type SubscriptionRow = {
   endpoint: string;
   subscription: unknown;
 };
+
+function notificationIsEnabled(row: UserSettingsRow | undefined, key: NotificationSettingKey) {
+  return row?.notification_preferences?.[key] !== false;
+}
 
 let cachedGoogleToken: { token: string; expiresAt: number } | null = null;
 
@@ -464,6 +479,23 @@ router.post("/calls/push", async (req, res): Promise<void> => {
   const recipientId = callerId === call.caller_id ? call.receiver_id : call.caller_id;
 
   if (action === "ring") {
+    let settings: UserSettingsRow[];
+    try {
+      settings = await readRows<UserSettingsRow>(config, "user_settings", {
+        select: "notification_preferences",
+        user_id: `eq.${recipientId}`,
+        limit: "1",
+      });
+    } catch (cause) {
+      req.log.error({ cause }, "Could not load call notification preferences");
+      res.status(503).json({ error: "Could not verify call notification settings." });
+      return;
+    }
+    if (!notificationIsEnabled(settings[0], "calls")) {
+      res.json(SendIncomingCallPushResponse.parse({ delivered: 0, suppressed: true }));
+      return;
+    }
+
     let conversations: ConversationRow[];
     try {
       conversations = await readRows<ConversationRow>(config, "conversations", {
@@ -650,6 +682,7 @@ router.post("/messages/push", async (req, res): Promise<void> => {
 
   let conversation: MessageConversationRow | undefined;
   let preferences: PreferenceRow[];
+  let appSettings: UserSettingsRow[];
   try {
     const conversations = await readRows<MessageConversationRow>(config, "conversations", {
       select: "id,participant_one_id,participant_two_id",
@@ -675,6 +708,11 @@ router.post("/messages/push", async (req, res): Promise<void> => {
       user_id: `eq.${message.receiver_id}`,
       limit: "1",
     });
+    appSettings = await readRows<UserSettingsRow>(config, "user_settings", {
+      select: "notification_preferences",
+      user_id: `eq.${message.receiver_id}`,
+      limit: "1",
+    });
   } catch (cause) {
     req.log.error({ cause }, "Could not verify chat message notification privacy");
     res.status(503).json({ error: "Could not verify chat notification settings." });
@@ -682,6 +720,10 @@ router.post("/messages/push", async (req, res): Promise<void> => {
   }
 
   const recipientSettings = preferences[0];
+  if (!notificationIsEnabled(appSettings[0], "messages")) {
+    res.json(SendMessagePushResponse.parse({ delivered: 0, suppressed: true }));
+    return;
+  }
   const secretLocked =
     recipientSettings?.is_locked === true &&
     typeof recipientSettings.secret_pin_salt === "string" &&

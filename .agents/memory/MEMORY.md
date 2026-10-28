@@ -32,7 +32,7 @@
 - [Orbit runtime schema](orbit-runtime-schema.md) — generated Orbit types can outpace Supabase; keep the table/RPC migration and client discovery fallback aligned.
 - [WebRTC call signaling](webrtc-call-signaling.md) — persist and reuse the initial offer; realtime accept events are only an acceleration path.
 - [Orbit request workflow](orbit-request-workflow.md) — enforce the combined three-message pending cap and receiver-only acceptance in the database.
-- [Social Chat preferences](social-chat-preferences.md) — private options stay participant-scoped; auto-delete and capture protection are shared conversation policy.
+- [Social Chat preferences](social-chat-preferences.md) — account communication settings are server-enforced; shared retention/capture policy remains separate from participant options.
 - [Chat message bubble sizing](chat-message-bubble-sizing.md) — keep message rows full-width and text bubbles content-fit, capped at 75%, without narrow fixed widths.
 - [Enterprise call delivery](enterprise-call-delivery.md) — browser background calls use Web Push through a JWT-protected Edge Function; native VoIP needs a mobile client.
 - [Sports document isolation](sports-document-isolation.md) — verification files require a private bucket and owner-folder policy; broad public storage policies must exclude that bucket.

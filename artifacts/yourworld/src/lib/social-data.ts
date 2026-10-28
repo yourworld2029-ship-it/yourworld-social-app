@@ -2949,6 +2949,18 @@ export function useThreadMessages(
       threadIdRef.current === requestThreadId &&
       messagesThreadIdRef.current === requestThreadId;
     const receiverId = pair.find((id) => id !== me)!;
+    const { data: canStartMessage, error: permissionError } = await supabase.rpc(
+      "can_start_social_message" as never,
+      {
+        p_sender_id: me,
+        p_receiver_id: receiverId,
+        p_conversation_id: conversationId,
+      } as never,
+    ) as unknown as { data: boolean | null; error: { message: string } | null };
+    if (permissionError) return { error: permissionError.message };
+    if (canStartMessage !== true) {
+      return { error: "This person only accepts messages from people they follow." };
+    }
     const expiringMedia = Boolean(payload.expiringMedia || payload.viewOnce);
     const initialSetting = payload.isSystemMessage
       ? "off"

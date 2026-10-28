@@ -15,8 +15,14 @@ import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
 import { useFollowList } from "@/lib/follow-data";
 import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 import { announceVideoCreatorRestored, announceVideoPostRestored } from "@/lib/video-context-actions";
-import { useUserPreferences } from "@/lib/user-preferences";
-import { formatDailyUsage, readDailyUsageSeconds, subscribeToDailyUsage } from "@/lib/daily-usage";
+import { useUserPreferences, type NotificationSettings } from "@/lib/user-preferences";
+import {
+  formatDailyUsage,
+  localDayKey,
+  readDailyUsageSeconds,
+  subscribeToDailyUsage,
+  syncDailyUsageSeconds,
+} from "@/lib/daily-usage";
 import { useAppLanguage } from "@/lib/app-language";
 
 export const Route = createFileRoute("/settings")({
@@ -93,7 +99,7 @@ function SettingsPage() {
       adminAccess.status === "allowed");
   const { language, setLanguage, t } = useAppLanguage();
   const queryClient = useQueryClient();
-  const { preferences, savePreference } = useUserPreferences(user?.id);
+  const { preferences, savePreference, loading: preferencesLoading } = useUserPreferences(user?.id);
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [reportStep, setReportStep] = useState<"options" | "dmca" | null>(null);
   const [dmca, setDmca] = useState({ contentLink: "", originalWork: "", description: "", email: "", fullName: "" });
@@ -255,17 +261,24 @@ function SettingsPage() {
     privateAccount: false,
     allowDownloads: true,
     activityStatus: true,
-    likes: true,
-    comments: true,
-    followers: true,
-    messages: true,
-    calls: true,
-    channel: true,
-    system: true,
   });
   const [privateAccountReady, setPrivateAccountReady] = useState(false);
   const [privateAccountSaving, setPrivateAccountSaving] = useState(false);
   const flip = (k: string) => setToggles((t) => ({ ...t, [k]: !t[k] }));
+  const persistPreference = <K extends keyof typeof preferences>(
+    key: K,
+    value: (typeof preferences)[K],
+  ) => {
+    void savePreference(key, value).then((saved) => {
+      if (!saved) toast.error("Could not save this setting. Check your connection and try again.");
+    });
+  };
+  const flipNotification = (key: keyof NotificationSettings) => {
+    persistPreference("notificationPreferences", {
+      ...preferences.notificationPreferences,
+      [key]: !preferences.notificationPreferences[key],
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -619,19 +632,21 @@ function SettingsPage() {
             label={t("whoCanMessage")}
             hint={t("whoCanMessageHint")}
             value={preferences.whoCanMessage}
+            disabled={preferencesLoading}
             options={[
               { value: "everyone", label: t("everyone") },
               { value: "following", label: t("onlyPeopleYouFollow") },
             ]}
             onChange={(value) =>
-              savePreference("whoCanMessage", value as "everyone" | "following")
+              persistPreference("whoCanMessage", value as "everyone" | "following")
             }
           />
           <Toggle
             label={t("readReceipts")}
             hint={t("readReceiptsHint")}
             on={preferences.readReceipts}
-            onClick={() => savePreference("readReceipts", !preferences.readReceipts)}
+            disabled={preferencesLoading}
+            onClick={() => persistPreference("readReceipts", !preferences.readReceipts)}
           />
           <p className="px-3 pb-2 text-[11px] leading-relaxed text-muted-foreground">
             {t("messageRequestNote")}
@@ -730,7 +745,8 @@ function SettingsPage() {
           <TimeManagementPanel
             userId={user?.id ?? "guest"}
             limitMinutes={preferences.dailyLimitMinutes}
-            onLimitChange={(limit) => savePreference("dailyLimitMinutes", limit)}
+            disabled={preferencesLoading}
+            onLimitChange={(limit) => persistPreference("dailyLimitMinutes", limit)}
           />
         </Panel>
       )}
@@ -853,18 +869,49 @@ function SettingsPage() {
 
       {panel === "notifications" && (
         <Panel title={t("notifications")} onClose={() => setPanel(null)}>
-          <Toggle label={t("likes")} on={toggles.likes} onClick={() => flip("likes")} />
-          <Toggle label={t("comments")} on={toggles.comments} onClick={() => flip("comments")} />
-          <Toggle label={t("newFollowers")} on={toggles.followers} onClick={() => flip("followers")} />
-          <Toggle label={t("messages")} on={toggles.messages} onClick={() => flip("messages")} />
+          <Toggle
+            label={t("likes")}
+            on={preferences.notificationPreferences.likes}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("likes")}
+          />
+          <Toggle
+            label={t("comments")}
+            on={preferences.notificationPreferences.comments}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("comments")}
+          />
+          <Toggle
+            label={t("newFollowers")}
+            on={preferences.notificationPreferences.followers}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("followers")}
+          />
+          <Toggle
+            label={t("messages")}
+            on={preferences.notificationPreferences.messages}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("messages")}
+          />
           <Toggle
             label={t("calls")}
             hint={t("callsHint")}
-            on={toggles.calls}
-            onClick={() => flip("calls")}
+            on={preferences.notificationPreferences.calls}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("calls")}
           />
-          <Toggle label={t("channelMonetization")} on={toggles.channel} onClick={() => flip("channel")} />
-          <Toggle label={t("systemAlerts")} on={toggles.system} onClick={() => flip("system")} />
+          <Toggle
+            label={t("channelMonetization")}
+            on={preferences.notificationPreferences.monetization}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("monetization")}
+          />
+          <Toggle
+            label={t("systemAlerts")}
+            on={preferences.notificationPreferences.system}
+            disabled={preferencesLoading}
+            onClick={() => flipNotification("system")}
+          />
         </Panel>
       )}
 
@@ -1638,12 +1685,14 @@ function PreferenceChoice({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string;
   hint?: string;
   value: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <fieldset className="rounded-xl p-3">
@@ -1656,8 +1705,9 @@ function PreferenceChoice({
             type="button"
             data-testid={`option-${option.value}`}
             aria-pressed={value === option.value}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
-            className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted/70"
+            className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span>{option.label}</span>
             <span
@@ -1681,17 +1731,50 @@ function TimeManagementPanel({
   userId,
   limitMinutes,
   onLimitChange,
+  disabled = false,
 }: {
   userId: string;
   limitMinutes: 30 | 60 | 120 | null;
   onLimitChange: (limit: 30 | 60 | 120 | null) => void;
+  disabled?: boolean;
 }) {
   const { t } = useAppLanguage();
   const [usageSeconds, setUsageSeconds] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    const guest = userId === "guest";
     setUsageSeconds(readDailyUsageSeconds(userId));
-    return subscribeToDailyUsage(userId, setUsageSeconds);
+    const unsubscribeLocal = subscribeToDailyUsage(userId, setUsageSeconds);
+
+    const refreshFromServer = async () => {
+      if (guest) return;
+      try {
+        const { data, error } = await supabase.rpc(
+          "get_my_daily_usage" as never,
+          { p_local_day: localDayKey() } as never,
+        ) as unknown as { data: number | string | null; error: { message: string } | null };
+        if (error) throw new Error(error.message);
+        const seconds = Number(data);
+        if (active && Number.isFinite(seconds)) {
+          setUsageSeconds(syncDailyUsageSeconds(userId, seconds));
+        }
+      } catch (error) {
+        console.warn("[time-management] Could not refresh saved usage", error);
+      }
+    };
+
+    void refreshFromServer();
+    const interval = guest ? null : window.setInterval(() => void refreshFromServer(), 30_000);
+    window.addEventListener("focus", refreshFromServer);
+    window.addEventListener("online", refreshFromServer);
+    return () => {
+      active = false;
+      unsubscribeLocal();
+      if (interval !== null) window.clearInterval(interval);
+      window.removeEventListener("focus", refreshFromServer);
+      window.removeEventListener("online", refreshFromServer);
+    };
   }, [userId]);
 
   const options: { value: 30 | 60 | 120 | null; label: string }[] = [
@@ -1753,8 +1836,9 @@ function TimeManagementPanel({
               type="button"
               data-testid={`daily-limit-${option.label}`}
               aria-pressed={limitMinutes === option.value}
+              disabled={disabled}
               onClick={() => onLimitChange(option.value)}
-              className={`rounded-xl border px-2 py-2 text-xs font-semibold transition ${
+              className={`rounded-xl border px-2 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 limitMinutes === option.value
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-background text-foreground hover:bg-muted"

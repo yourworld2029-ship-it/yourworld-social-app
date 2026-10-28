@@ -90,6 +90,24 @@ Deno.serve(async (request) => {
   // A Secret Lock is recipient-specific. Suppress the OS push before it can
   // wake the service worker, reveal caller details, or vibrate the device.
   if (action === "ring") {
+    const { data: recipientSettings, error: settingsError } = await admin
+      .from("user_settings")
+      .select("notification_preferences")
+      .eq("user_id", recipientId)
+      .maybeSingle();
+    if (settingsError) {
+      return response({ error: "Could not verify call notification settings" }, 503);
+    }
+    const notificationPreferences = recipientSettings?.notification_preferences;
+    if (
+      notificationPreferences &&
+      typeof notificationPreferences === "object" &&
+      "calls" in notificationPreferences &&
+      notificationPreferences.calls === false
+    ) {
+      return response({ delivered: 0, attempted: 0, suppressed: true });
+    }
+
     const { data: conversations, error: conversationError } = await admin
       .from("conversations")
       .select("id")

@@ -22,6 +22,8 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { useAuth } from "@/lib/auth-store";
+import { useUserPreferences, type NotificationSettings } from "@/lib/user-preferences";
 const liveDb = supabase as unknown as {
   from: (table: "likes" | "comments" | "posts" | "messages" | "moments") => ReturnType<typeof supabase.from>;
 };
@@ -98,9 +100,35 @@ export const kindMeta = (k: NotificationKind) =>
 
 export type NotificationPrefs = Record<NotificationKind, boolean>;
 
-const defaultPrefs = Object.fromEntries(
-  NOTIFICATION_KINDS.map((k) => [k.id, true]),
-) as NotificationPrefs;
+function preferencesForNotifications(settings: NotificationSettings): NotificationPrefs {
+  return {
+    like: settings.likes,
+    comment: settings.comments,
+    mention: settings.comments,
+    follower: settings.followers,
+    message: settings.messages,
+    collaboration: settings.messages,
+    channel: settings.monetization,
+    verification: settings.system,
+    monetization: settings.monetization,
+    system: settings.system,
+  };
+}
+
+function settingsKeyForNotification(kind: NotificationKind): keyof NotificationSettings {
+  switch (kind) {
+    case "like": return "likes";
+    case "comment":
+    case "mention": return "comments";
+    case "follower": return "followers";
+    case "message":
+    case "collaboration": return "messages";
+    case "channel":
+    case "monetization": return "monetization";
+    case "verification":
+    case "system": return "system";
+  }
+}
 
 type Ctx = {
   items: NotificationItem[];
@@ -109,7 +137,7 @@ type Ctx = {
   prefs: NotificationPrefs;
   live: boolean;
   setLive: (v: boolean) => void;
-  setPref: (k: NotificationKind, v: boolean) => void;
+  setPref: (k: NotificationKind, v: boolean) => Promise<boolean>;
   markRead: (id: string) => void;
   markAllRead: () => void;
   remove: (id: string) => void;
@@ -721,11 +749,20 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
 }
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const {
+    preferences,
+    savePreference,
+    loading: preferencesLoading,
+  } = useUserPreferences(user?.id);
   const [events, setEvents] = useState<Omit<NotificationItem, "read">[]>([]);
-  const [prefs, setPrefs] = useState<NotificationPrefs>(defaultPrefs);
   const [live, setLive] = useState(true);
   const [readIds, setReadIds] = useState<string[]>([]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const prefs = useMemo(
+    () => preferencesForNotifications(preferences.notificationPreferences),
+    [preferences.notificationPreferences],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -797,17 +834,23 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     };
   }, [live, load]);
 
-  const setPref = useCallback((k: NotificationKind, v: boolean) => {
-    setPrefs((p) => ({ ...p, [k]: v }));
-  }, []);
+  const setPref = useCallback(async (k: NotificationKind, v: boolean) => {
+    const settingKey = settingsKeyForNotification(k);
+    return savePreference("notificationPreferences", {
+      ...preferences.notificationPreferences,
+      [settingKey]: v,
+    });
+  }, [preferences.notificationPreferences, savePreference]);
 
   const value = useMemo<Ctx>(() => {
     const read = new Set(readIds);
     const removed = new Set(removedIds);
-    const visible = events
-      .filter((i) => !removed.has(i.id))
-      .filter((i) => prefs[i.kind])
-      .map((i) => ({ ...i, read: read.has(i.id) }));
+    const visible = preferencesLoading
+      ? []
+      : events
+          .filter((i) => !removed.has(i.id))
+          .filter((i) => prefs[i.kind])
+          .map((i) => ({ ...i, read: read.has(i.id) }));
 
     const unreadByKind = Object.fromEntries(
       NOTIFICATION_KINDS.map((k) => [k.id, visible.filter((i) => i.kind === k.id && !i.read).length]),
@@ -826,7 +869,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       remove: (id) => setRemovedIds((p) => (p.includes(id) ? p : [id, ...p])),
       clearAll: () => setRemovedIds((p) => [...new Set([...events.map((e) => e.id), ...p])]),
     };
-  }, [events, prefs, live, setPref, readIds, removedIds]);
+  }, [events, prefs, live, setPref, readIds, removedIds, preferencesLoading]);
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;
 }

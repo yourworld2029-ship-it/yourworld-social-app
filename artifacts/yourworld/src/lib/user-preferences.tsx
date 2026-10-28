@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type MessagePermission = "everyone" | "following";
 export type DailyLimitMinutes = 30 | 60 | 120 | null;
+export type NotificationSettings = {
+  likes: boolean;
+  comments: boolean;
+  followers: boolean;
+  messages: boolean;
+  calls: boolean;
+  monetization: boolean;
+  system: boolean;
+};
 
 export type UserPreferences = {
   dataSaver: boolean;
@@ -11,6 +21,7 @@ export type UserPreferences = {
   hideOffensiveComments: boolean;
   hiddenWords: string[];
   dailyLimitMinutes: DailyLimitMinutes;
+  notificationPreferences: NotificationSettings;
 };
 
 export type UserPreferenceKey = keyof UserPreferences;
@@ -23,6 +34,15 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   hideOffensiveComments: false,
   hiddenWords: [],
   dailyLimitMinutes: null,
+  notificationPreferences: {
+    likes: true,
+    comments: true,
+    followers: true,
+    messages: true,
+    calls: true,
+    monetization: true,
+    system: true,
+  },
 };
 
 const STORAGE_PREFIX = "yw:user-preferences:v1:";
@@ -56,6 +76,21 @@ function isDailyLimit(value: unknown): value is DailyLimitMinutes {
   return value === null || value === 30 || value === 60 || value === 120;
 }
 
+function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  const defaults = DEFAULT_USER_PREFERENCES.notificationPreferences;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaults };
+  const raw = value as Partial<Record<keyof NotificationSettings, unknown>>;
+  return {
+    likes: typeof raw.likes === "boolean" ? raw.likes : defaults.likes,
+    comments: typeof raw.comments === "boolean" ? raw.comments : defaults.comments,
+    followers: typeof raw.followers === "boolean" ? raw.followers : defaults.followers,
+    messages: typeof raw.messages === "boolean" ? raw.messages : defaults.messages,
+    calls: typeof raw.calls === "boolean" ? raw.calls : defaults.calls,
+    monetization: typeof raw.monetization === "boolean" ? raw.monetization : defaults.monetization,
+    system: typeof raw.system === "boolean" ? raw.system : defaults.system,
+  };
+}
+
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ...DEFAULT_USER_PREFERENCES };
@@ -86,7 +121,54 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
     dailyLimitMinutes: isDailyLimit(raw.dailyLimitMinutes)
       ? raw.dailyLimitMinutes
       : DEFAULT_USER_PREFERENCES.dailyLimitMinutes,
+    notificationPreferences: normalizeNotificationSettings(raw.notificationPreferences),
   };
+}
+
+type UserSettingsRow = {
+  user_id: string;
+  who_can_message: MessagePermission;
+  read_receipts_enabled: boolean;
+  daily_limit_minutes: DailyLimitMinutes;
+  notification_preferences: NotificationSettings;
+};
+
+type RpcResult<T> = { data: T | null; error: { message: string } | null };
+
+async function callSettingsRpc<T>(
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<RpcResult<T>> {
+  return await supabase.rpc(name as never, args as never) as unknown as RpcResult<T>;
+}
+
+function firstSettingsRow(value: unknown): UserSettingsRow | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  if (!row || typeof row !== "object") return null;
+  return row as UserSettingsRow;
+}
+
+function fromSettingsRow(row: UserSettingsRow, base: UserPreferences): UserPreferences {
+  return normalizeUserPreferences({
+    ...base,
+    whoCanMessage: row.who_can_message,
+    readReceipts: row.read_receipts_enabled,
+    dailyLimitMinutes: row.daily_limit_minutes,
+    notificationPreferences: row.notification_preferences,
+  });
+}
+
+function toSettingsPatch(preferences: UserPreferences) {
+  return {
+    who_can_message: preferences.whoCanMessage,
+    read_receipts_enabled: preferences.readReceipts,
+    daily_limit_minutes: preferences.dailyLimitMinutes,
+    notification_preferences: preferences.notificationPreferences,
+  };
+}
+
+async function saveSettingsPatch(patch: Record<string, unknown>) {
+  return callSettingsRpc<UserSettingsRow>("save_my_user_settings", { p_patch: patch });
 }
 
 export function getUserPreferences(userId?: string | null): UserPreferences {
@@ -124,12 +206,32 @@ export function setUserPreference<K extends UserPreferenceKey>(
   return next;
 }
 
+function saveUserPreferences(userId: string | null | undefined, value: UserPreferences) {
+  const next = normalizeUserPreferences(value);
+  if (typeof window === "undefined") return next;
+  try {
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(next));
+    window.dispatchEvent(
+      new CustomEvent<PreferenceChangeEvent["detail"]>(CHANGE_EVENT, {
+        detail: { userId: userId || "guest", preferences: next },
+      }),
+    );
+  } catch (error) {
+    console.error("[settings] Could not save preferences", error);
+  }
+  return next;
+}
+
 export function useUserPreferences(userId?: string | null) {
   const [preferences, setPreferences] = useState(() => getUserPreferences(userId));
+  const [loading, setLoading] = useState(Boolean(userId));
   const normalizedUserId = userId || "guest";
 
   useEffect(() => {
-    setPreferences(getUserPreferences(userId));
+    let active = true;
+    const localPreferences = getUserPreferences(userId);
+    setPreferences(localPreferences);
+    setLoading(Boolean(userId));
 
     const onPreferenceChange = (event: Event) => {
       const detail = (event as PreferenceChangeEvent).detail;
@@ -144,20 +246,84 @@ export function useUserPreferences(userId?: string | null) {
     };
     window.addEventListener(CHANGE_EVENT, onPreferenceChange);
     window.addEventListener("storage", onStorage);
+
+    if (userId) {
+      const refreshRemote = async () => {
+        try {
+          const result = await callSettingsRpc<UserSettingsRow[]>("get_my_user_settings");
+          if (result.error) throw new Error(result.error.message);
+          let row = firstSettingsRow(result.data);
+          if (!row) {
+            const initialized = await saveSettingsPatch(toSettingsPatch(localPreferences));
+            if (initialized.error) throw new Error(initialized.error.message);
+            row = firstSettingsRow(initialized.data);
+          }
+          if (active && row) {
+            setPreferences(saveUserPreferences(userId, fromSettingsRow(row, localPreferences)));
+          }
+        } catch (error) {
+          console.error("[settings] Could not load account preferences", error);
+        } finally {
+          if (active) setLoading(false);
+        }
+      };
+      const refreshWhenVisible = () => {
+        if (document.visibilityState === "visible") void refreshRemote();
+      };
+      void refreshRemote();
+      window.addEventListener("focus", refreshRemote);
+      window.addEventListener("online", refreshRemote);
+      document.addEventListener("visibilitychange", refreshWhenVisible);
+      return () => {
+        active = false;
+        window.removeEventListener(CHANGE_EVENT, onPreferenceChange);
+        window.removeEventListener("storage", onStorage);
+        window.removeEventListener("focus", refreshRemote);
+        window.removeEventListener("online", refreshRemote);
+        document.removeEventListener("visibilitychange", refreshWhenVisible);
+      };
+    } else {
+      setLoading(false);
+    }
+
     return () => {
+      active = false;
       window.removeEventListener(CHANGE_EVENT, onPreferenceChange);
       window.removeEventListener("storage", onStorage);
     };
   }, [normalizedUserId, userId]);
 
   const savePreference = useCallback(
-    <K extends UserPreferenceKey>(key: K, value: UserPreferences[K]) => {
-      setPreferences(setUserPreference(userId, key, value));
+    async <K extends UserPreferenceKey>(key: K, value: UserPreferences[K]): Promise<boolean> => {
+      const next = normalizeUserPreferences({ ...preferences, [key]: value });
+      const remotePatch: Record<string, unknown> = {};
+      if (key === "whoCanMessage") remotePatch.who_can_message = value;
+      if (key === "readReceipts") remotePatch.read_receipts_enabled = value;
+      if (key === "dailyLimitMinutes") remotePatch.daily_limit_minutes = value;
+      if (key === "notificationPreferences") {
+        remotePatch.notification_preferences = value;
+      }
+
+      if (userId && Object.keys(remotePatch).length) {
+        try {
+          const result = await saveSettingsPatch(remotePatch);
+          if (result.error) throw new Error(result.error.message);
+          const row = firstSettingsRow(result.data);
+          setPreferences(saveUserPreferences(userId, row ? fromSettingsRow(row, next) : next));
+          return true;
+        } catch (error) {
+          console.error("[settings] Could not save account preference", error);
+          return false;
+        }
+      }
+
+      setPreferences(saveUserPreferences(userId, next));
+      return true;
     },
-    [userId],
+    [preferences, userId],
   );
 
-  return { preferences, savePreference };
+  return { preferences, savePreference, loading };
 }
 
 export function shouldUseDataSaverOnNetwork(

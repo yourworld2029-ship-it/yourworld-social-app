@@ -27,6 +27,30 @@ test("preference normalization validates each setting and caps hidden words", ()
   assert.equal(preferences.dailyLimitMinutes, null);
 });
 
+test("notification preferences normalize every supported category independently", () => {
+  const preferences = normalizeUserPreferences({
+    notificationPreferences: {
+      likes: false,
+      comments: "off",
+      followers: true,
+      messages: false,
+      calls: false,
+      monetization: true,
+      system: null,
+    },
+  });
+
+  assert.deepEqual(preferences.notificationPreferences, {
+    likes: false,
+    comments: true,
+    followers: true,
+    messages: false,
+    calls: false,
+    monetization: true,
+    system: true,
+  });
+});
+
 test("data saver activates only on cellular, system-saver, or slow connections", () => {
   assert.equal(shouldUseDataSaverOnNetwork(true, { type: "cellular" }), true);
   assert.equal(shouldUseDataSaverOnNetwork(true, { effectiveType: "3g" }), true);

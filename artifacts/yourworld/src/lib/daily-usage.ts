@@ -1,9 +1,16 @@
 const USAGE_KEY_PREFIX = "yw:daily-usage:v1:";
+const SESSION_KEY_PREFIX = "yw:daily-usage-session:v1:";
 const REMINDER_KEY_PREFIX = "yw:daily-limit-reminder:v1:";
 const USAGE_EVENT = "yw:daily-usage-updated";
 
 type DailyUsageRecord = {
   day: string;
+  seconds: number;
+};
+
+export type DailyUsageSession = {
+  day: string;
+  sessionId: string;
   seconds: number;
 };
 
@@ -16,6 +23,20 @@ export function localDayKey(date = new Date()) {
 
 function usageKey(userId: string) {
   return `${USAGE_KEY_PREFIX}${userId || "guest"}`;
+}
+
+function sessionKey(userId: string, date = new Date()) {
+  return `${SESSION_KEY_PREFIX}${userId || "guest"}:${localDayKey(date)}`;
+}
+
+function createSessionId() {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
 }
 
 function reminderKey(userId: string, limitMinutes: number, date = new Date()) {
@@ -76,6 +97,92 @@ export function addDailyUsageSeconds(
     console.error("[time-management] Could not save daily usage", error);
   }
   return next;
+}
+
+export function getDailyUsageSession(userId: string, date = new Date()): DailyUsageSession {
+  const day = localDayKey(date);
+  if (typeof window === "undefined") {
+    return { day, sessionId: "server-session", seconds: 0 };
+  }
+  try {
+    const key = sessionKey(userId, date);
+    const raw = window.sessionStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<DailyUsageSession>;
+      if (
+        parsed.day === day &&
+        typeof parsed.sessionId === "string" &&
+        parsed.sessionId.length > 0 &&
+        Number.isFinite(parsed.seconds)
+      ) {
+        return {
+          day,
+          sessionId: parsed.sessionId,
+          seconds: Math.max(0, Math.min(86400, Math.floor(Number(parsed.seconds)))),
+        };
+      }
+    }
+    const sessionId = createSessionId();
+    const session = { day, sessionId, seconds: 0 };
+    window.sessionStorage.setItem(key, JSON.stringify(session));
+    return session;
+  } catch (error) {
+    console.warn("[time-management] Could not persist usage session", error);
+    return {
+      day,
+      sessionId: createSessionId(),
+      seconds: 0,
+    };
+  }
+}
+
+export function addDailyUsageSessionSeconds(
+  userId: string,
+  session: DailyUsageSession,
+  seconds: number,
+  date = new Date(),
+) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return session.seconds;
+  const next = {
+    ...session,
+    day: localDayKey(date),
+    seconds: Math.min(86400, session.seconds + Math.floor(seconds)),
+  };
+  session.seconds = next.seconds;
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem(sessionKey(userId, date), JSON.stringify(next));
+    } catch (error) {
+      console.warn("[time-management] Could not update usage session", error);
+    }
+  }
+  return next.seconds;
+}
+
+export function syncDailyUsageSeconds(
+  userId: string,
+  seconds: number,
+  date = new Date(),
+) {
+  if (!Number.isFinite(seconds) || seconds < 0 || typeof window === "undefined") {
+    return readDailyUsageSeconds(userId, date);
+  }
+  const today = localDayKey(date);
+  const total = Math.max(readDailyUsageSeconds(userId, date), Math.floor(seconds));
+  try {
+    window.localStorage.setItem(
+      usageKey(userId),
+      JSON.stringify({ day: today, seconds: total } satisfies DailyUsageRecord),
+    );
+    window.dispatchEvent(
+      new CustomEvent(USAGE_EVENT, {
+        detail: { userId: userId || "guest", day: today, seconds: total },
+      }),
+    );
+  } catch (error) {
+    console.warn("[time-management] Could not sync daily usage", error);
+  }
+  return total;
 }
 
 export function shouldShowDailyLimitReminder(

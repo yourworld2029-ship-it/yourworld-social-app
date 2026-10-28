@@ -9,8 +9,8 @@ Social Chat stores private controls and secret-lock material in each participant
 
 **How to apply:** Keep unrelated controls participant-scoped. Persist shared policy on the conversation row, deliver it through realtime, and enforce any owner-only switch behavior in a database trigger rather than relying on UI state alone.
 
-Settings-level "Who can message you" and ordinary read-receipt choices are a separate, user-scoped local preference. Do not present the message-access choice as server-enforced or move it into auth/schema without explicit approval. Disabling read receipts skips ordinary `is_read` writes; View Once and after-view messages still record opens so their expiry behavior remains intact.
+Settings-level message access, read receipts, daily app usage/limits, and notification categories are user-scoped Supabase preferences. “Only People You Follow” blocks new direct-message threads from people the recipient does not follow, while existing conversations remain usable. Read-receipt enforcement must not block View Once/after-view open tracking. Notification categories filter in-app events and message/call pushes; unrelated device-local preferences stay local.
 
-**Why:** The user explicitly requested these Settings modules without database/auth changes and accepted local preference persistence.
+**Why:** The user explicitly requested these settings be persisted and enforced across the backend, not just stored on one device.
 
-**How to apply:** Keep these choices in user-keyed local storage. If cross-device or server-enforced message access is later required, get approval before adding a schema, RLS, or API policy.
+**How to apply:** Keep these controls user-scoped, enforce message access and read receipts at the database boundary, and suppress pushes before delivery. Preserve the distinction between incoming-message access and shared conversation controls.
