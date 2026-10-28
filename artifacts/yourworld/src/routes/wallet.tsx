@@ -298,6 +298,7 @@ function WalletPage() {
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
   const [videoNet, setVideoNet] = useState(0);
+  const [heldEarnings, setHeldEarnings] = useState(0);
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
   const [bankPassbookFile, setBankPassbookFile] = useState<File | null>(null);
@@ -325,6 +326,7 @@ function WalletPage() {
   useEffect(() => {
     const uid = user?.id;
     setNationalAwardApproved(false);
+    setHeldEarnings(0);
     setCountryLoaded(false);
     setCountry("");
     setDetails({ ...emptyDetails, creator_email: user?.email ?? "" });
@@ -351,13 +353,15 @@ function WalletPage() {
       ] = await Promise.all([
           supabase
             .from("creator_earnings")
-            .select("source, gross_amount, creator_amount, currency")
+            .select("source, gross_amount, creator_amount, currency, moderation_hold_status")
             .eq("user_id", uid)
             .is("payout_id", null)
             .is("payout_request_id", null),
           supabase
             .from("creator_earnings")
-            .select("source, gross_amount, creator_amount, currency")
+            .select(
+              "source, gross_amount, creator_amount, currency, payout_id, moderation_hold_status",
+            )
             .eq("user_id", uid),
           supabase.from("creator_payout_profiles").select("*").eq("user_id", uid).maybeSingle(),
           supabase
@@ -397,8 +401,12 @@ function WalletPage() {
         gross_amount: number | string | null;
         creator_amount?: number | string | null;
         currency?: string | null;
+        moderation_hold_status?: string | null;
       }>;
-      const currentCurrencyEarnings = earningsForCurrency(activeEarnings, activeCurrency);
+      const availableEarnings = activeEarnings.filter(
+        (row) => row.moderation_hold_status !== "held",
+      );
+      const currentCurrencyEarnings = earningsForCurrency(availableEarnings, activeCurrency);
       for (const row of currentCurrencyEarnings) {
         const key = row.source as keyof GrossBySource;
         if (key in next) next[key] += Number(row.gross_amount ?? 0);
@@ -409,16 +417,26 @@ function WalletPage() {
       }, 0);
       setVideoNet(round2(unpaidVideoNet));
 
+      const typedAllEarnings = (allEarnings ?? []) as Array<{
+        source: string;
+        gross_amount?: number | string | null;
+        creator_amount?: number | string | null;
+        currency?: string | null;
+        payout_id?: string | null;
+        moderation_hold_status?: string | null;
+      }>;
+      const currentCurrencyAllEarnings = earningsForCurrency(typedAllEarnings, activeCurrency);
+      const heldBalance = currentCurrencyAllEarnings.reduce((sum, row) => {
+        return row.moderation_hold_status === "held" && !row.payout_id
+          ? sum + Number(row.creator_amount ?? 0)
+          : sum;
+      }, 0);
+      setHeldEarnings(round2(heldBalance));
+
       const cumulativeDirectGross: GrossBySource = { ads: 0, course: 0, vip: 0 };
       let cumulativeVideoNet = 0;
-      const currentAllEarnings = earningsForCurrency(
-        (allEarnings ?? []) as Array<{
-          source: string;
-          gross_amount?: number | string | null;
-          creator_amount?: number | string | null;
-          currency?: string | null;
-        }>,
-        activeCurrency,
+      const currentAllEarnings = currentCurrencyAllEarnings.filter(
+        (row) => row.moderation_hold_status !== "held",
       );
       for (const typedRow of currentAllEarnings) {
         if (typedRow.source === "video") {
@@ -1079,16 +1097,31 @@ function WalletPage() {
               <div className="flex items-center gap-2 text-zinc-400">
                 <Wallet size={16} />
                 <p className="text-[11px] font-semibold uppercase tracking-wide">
-                  Total Earnings (Net Creator Share)
+                  Available Earnings (Net Creator Share)
                 </p>
               </div>
               <p className="pt-2 text-3xl font-extrabold">
                 {formatPayoutAmount(totalNetCreatorEarnings, payoutCurrency)}
               </p>
               <p className="pt-1 text-[11px] text-zinc-500">
-                Net creator earnings, before any payout-time TDS deduction.
+                Available net creator earnings, before any payout-time TDS deduction.
               </p>
             </section>
+            {heldEarnings > 0 ? (
+              <section className="rounded-2xl border border-amber-400/30 bg-amber-400/[0.07] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+                  Held / Under Review
+                </p>
+                <p className="pt-2 text-2xl font-bold text-white">
+                  {formatPayoutAmount(heldEarnings, payoutCurrency)}
+                </p>
+                <p className="pt-1 text-xs leading-relaxed text-amber-100/70">
+                  These earnings are not available for payout while a content review is active.
+                  After the 7-day dispute period, they remain held until an admin reviews them;
+                  they are not automatically forfeited.
+                </p>
+              </section>
+            ) : null}
             {/* Revenue breakdown */}
             <section className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${previewMode ? "hidden" : ""}`}>
               {[

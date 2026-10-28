@@ -25,6 +25,12 @@ For non-Indian creators, keep tax IDs, bank numbers, and PayPal email encrypted 
 
 **How to apply:** Keep country validation, encryption, PayPal uniqueness, and KYC state checks in the database; expose owner-scoped form RPCs and audited AAL2 admin review only.
 
+Confirmed copyright/fraud findings may hold unpaid earnings linked to the content for a 7-day dispute period. If unresolved after that, the amount remains held until an admin reviews it; do not automatically forfeit or transfer it to platform revenue. The day-27 payout check evaluates existing active payout holds only, and transfers remain manually processed in the 1–5 window.
+
+**Why:** The user explicitly chose continued hold and admin review instead of automatic forfeiture, and limited the scheduled monthly check to existing payout holds.
+
+**How to apply:** Keep held creator shares out of available balance and payout requests, show them separately in the wallet, require an audited admin release, and preserve the current manual payout flow.
+
 Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, reserve the full 15% platform commission, deduct the actual gateway charge or 2.36% estimate from the creator amount, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
 
 **Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.

@@ -368,6 +368,27 @@ export const reviewUserReport = createServerFn({ method: "POST" })
     const admin = await requireOwnerAdmin(context);
     const now = new Date().toISOString();
     const status = data.action === "resolve" ? "resolved" : "dismissed";
+    const { data: pendingReport, error: readError } = await admin
+      .from("user_reports")
+      .select("reported_content_id,content_type")
+      .eq("id", data.reportId)
+      .eq("status", "pending")
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!pendingReport) throw new Error("This moderation report is no longer pending.");
+    if (
+      data.action === "resolve" &&
+      ["video", "long_video", "reel"].includes(String(pendingReport.content_type ?? "").toLowerCase()) &&
+      z.string().uuid().safeParse(pendingReport.reported_content_id).success
+    ) {
+      const rpc = admin as unknown as AdminRpcClient;
+      const { error: holdError } = await rpc.rpc("hold_creator_earnings_for_post", {
+        p_post_id: pendingReport.reported_content_id,
+        p_report_id: data.reportId,
+        p_reason: `Confirmed content report: ${data.reason}`,
+      });
+      if (holdError) throw new Error(holdError.message);
+    }
     const { data: report, error: reportError } = await admin
       .from("user_reports")
       .update({ status, resolution_reason: data.reason, reviewed_at: now, reviewed_by: context.userId })
@@ -405,6 +426,13 @@ export const reviewCopyrightReport = createServerFn({ method: "POST" })
 
     if (data.action === "takedown") {
       if (report.reported_post_id) {
+        const rpc = admin as unknown as AdminRpcClient;
+        const { error: holdError } = await rpc.rpc("hold_creator_earnings_for_post", {
+          p_post_id: report.reported_post_id,
+          p_report_id: report.id,
+          p_reason: `Copyright takedown: ${data.reason}`,
+        });
+        if (holdError) throw new Error(holdError.message);
         const { error } = await admin.from("posts").delete().eq("id", report.reported_post_id);
         if (error) throw new Error(error.message);
       }
@@ -503,6 +531,18 @@ export const updatePayoutHold = createServerFn({ method: "POST" })
         .eq("user_id", data.targetUserId)
         .eq("status", "held");
       if (error) throw new Error(error.message);
+      const { error: securityCheckError } = await admin
+        .from("payout_requests")
+        .update({
+          security_check_passed: true,
+          security_checked_at: new Date().toISOString(),
+          security_check_reason: "Admin released the payout hold",
+        })
+        .eq("user_id", data.targetUserId)
+        .eq("security_check_required", true)
+        .eq("security_check_passed", false)
+        .in("status", ["processing", "approved"]);
+      if (securityCheckError) throw new Error(securityCheckError.message);
     }
     await writeAudit(admin, context, data.targetUserId, `payout_${data.action}`, data.reason);
     return { action: data.action };
@@ -540,6 +580,86 @@ export type AdminPayoutRequestsResponse = {
   requests: AdminPayoutRequest[];
   error?: string;
 };
+
+export type AdminCreatorEarningHold = {
+  id: string;
+  userId: string;
+  amount: number;
+  currency: string;
+  source: string;
+  sourcePostId: string | null;
+  reason: string;
+  heldAt: string | null;
+  disputeUntil: string | null;
+  profile: AdminProfile | null;
+};
+
+export const listAdminCreatorEarningHolds = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireOwnerAdmin(context);
+    const { data, error } = await admin
+      .from("creator_earnings")
+      .select(
+        "id,user_id,source,creator_amount,currency,source_post_id,moderation_hold_reason,moderation_held_at,moderation_dispute_until",
+      )
+      .eq("moderation_hold_status", "held")
+      .is("payout_id", null)
+      .order("moderation_held_at", { ascending: true })
+      .limit(200);
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const userIds = [...new Set(rows.map((row) => String(row.user_id)))];
+    const profileResult = userIds.length
+      ? await admin
+          .from("profiles")
+          .select("id,username,display_name,full_name,is_verified,verification_requested")
+          .in("id", userIds)
+      : { data: [], error: null };
+    if (profileResult.error) throw new Error(profileResult.error.message);
+    const profiles = new Map(
+      ((profileResult.data ?? []) as AdminProfile[]).map((profile) => [profile.id, profile]),
+    );
+
+    return {
+      holds: rows.map((row) => {
+        const userId = String(row.user_id);
+        return {
+          id: String(row.id),
+          userId,
+          amount: Number(row.creator_amount ?? 0),
+          currency: String(row.currency ?? "INR"),
+          source: String(row.source ?? "creator content"),
+          sourcePostId: (row.source_post_id as string | null) ?? null,
+          reason: String(row.moderation_hold_reason ?? "Under review"),
+          heldAt: (row.moderation_held_at as string | null) ?? null,
+          disputeUntil: (row.moderation_dispute_until as string | null) ?? null,
+          profile: profiles.get(userId) ?? null,
+        } satisfies AdminCreatorEarningHold;
+      }),
+    };
+  });
+
+const releaseCreatorEarningHoldSchema = z.object({
+  earningId: z.string().uuid(),
+  reason: z.string().trim().min(3).max(2000),
+});
+
+export const releaseAdminCreatorEarningHold = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => releaseCreatorEarningHoldSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const admin = await requireOwnerAdmin(context);
+    const rpc = admin as unknown as AdminRpcClient;
+    const { error } = await rpc.rpc("resolve_creator_earning_hold", {
+      p_earning_id: data.earningId,
+      p_admin_user_id: context.userId,
+      p_reason: data.reason,
+    });
+    if (error) throw new Error(error.message);
+    return { status: "released" as const };
+  });
 
 export type AdminInternationalPayoutKyc = {
   userId: string;

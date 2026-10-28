@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,7 +16,10 @@ import {
   reviewUserReport,
   updateAccountRestriction,
   updatePayoutHold,
+  listAdminCreatorEarningHolds,
+  releaseAdminCreatorEarningHold,
   type AdminConsoleData,
+  type AdminCreatorEarningHold,
   type AdminPayoutRequest,
   type AdminInternationalPayoutKyc,
 } from "@/lib/admin-console.functions";
@@ -685,12 +689,155 @@ function PayoutsTab({
     >
       <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} mfaVerified={mfaVerified} />
       <ManualPayoutQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} mfaVerified={mfaVerified} />
+      <CreatorEarningHoldQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} mfaVerified={mfaVerified} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
         {data?.monetization.map((row) => <PayoutCard key={row.userId} row={row} onChanged={onChanged} />)}
         {data?.payoutHolds.map((hold) => <CaseCard key={hold.id} title={`Held payout · ${displayProfile(hold.profile)}`} status={hold.status} createdAt={hold.createdAt}><p className="text-sm text-zinc-300">{hold.reason}</p></CaseCard>)}
       </div>
     </Panel>
+  );
+}
+
+function CreatorEarningHoldQueue({
+  onVerifyMfa,
+  refreshKey,
+  mfaVerified,
+}: {
+  onVerifyMfa: () => void;
+  refreshKey: number;
+  mfaVerified: boolean;
+}) {
+  const getHolds = useServerFn(listAdminCreatorEarningHolds);
+  const releaseHold = useServerFn(releaseAdminCreatorEarningHold);
+  const [holds, setHolds] = useState<AdminCreatorEarningHold[]>([]);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+
+  const load = useCallback(async () => {
+    if (!mfaVerified) {
+      setHolds([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await getHolds({});
+      setHolds(result.holds ?? []);
+    } catch (error) {
+      setHolds([]);
+      const message = error instanceof Error ? error.message : "Could not load held creator earnings.";
+      if (message.toLowerCase().includes("mfa")) onVerifyMfa();
+      else toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [getHolds, mfaVerified, onVerifyMfa]);
+
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
+
+  const release = async (hold: AdminCreatorEarningHold) => {
+    const reason = reasons[hold.id]?.trim() ?? "";
+    if (reason.length < 3) {
+      toast.error("Add the admin review reason before releasing these earnings.");
+      return;
+    }
+    setBusyId(hold.id);
+    try {
+      await releaseHold({ data: { earningId: hold.id, reason } });
+      toast.success("Held earnings released after admin review.");
+      setReasons((current) => ({ ...current, [hold.id]: "" }));
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not resolve this earning hold.";
+      if (message.toLowerCase().includes("mfa")) onVerifyMfa();
+      else toast.error(message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  return (
+    <section className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-400/[0.035] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Creator earnings under review</h3>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Confirmed content reports hold unpaid earnings for a 7-day dispute period. Unresolved
+            balances remain held until an admin reviews and releases them; there is no automatic forfeiture.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
+        >
+          Refresh held earnings
+        </button>
+      </div>
+      {loading ? (
+        <p className="mt-4 text-xs text-zinc-500">Loading held earnings…</p>
+      ) : holds.length === 0 ? (
+        <p className="mt-4 rounded-xl border border-dashed border-white/10 p-3 text-xs text-zinc-500">
+          No creator earnings are currently held for review.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {holds.map((hold) => {
+            const disputeOver = hold.disputeUntil
+              ? new Date(hold.disputeUntil).getTime() <= Date.now()
+              : false;
+            const amount = new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: hold.currency === "USD" ? "USD" : "INR",
+            }).format(hold.amount);
+            return (
+              <article key={hold.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {displayProfile(hold.profile)} · {amount}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      {hold.source} · {hold.sourcePostId ? `content ${hold.sourcePostId}` : "content removed"}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                    disputeOver ? "bg-amber-300/15 text-amber-200" : "bg-white/5 text-zinc-300"
+                  }`}>
+                    {disputeOver ? "Dispute period ended · admin review" : "7-day dispute period"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-zinc-300">{hold.reason}</p>
+                <label className="mt-3 block">
+                  <span className="sr-only">Admin release reason</span>
+                  <input
+                    value={reasons[hold.id] ?? ""}
+                    onChange={(event) =>
+                      setReasons((current) => ({ ...current, [hold.id]: event.target.value }))
+                    }
+                    placeholder="Reason for releasing these earnings"
+                    className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void release(hold)}
+                  disabled={busyId === hold.id || !mfaVerified}
+                  className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 disabled:opacity-50"
+                >
+                  {busyId === hold.id ? "Saving review…" : "Release after admin review"}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
