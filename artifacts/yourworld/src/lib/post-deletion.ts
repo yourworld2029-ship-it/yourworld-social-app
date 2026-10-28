@@ -92,4 +92,16 @@ export function removeDeletedPostFromQueryCaches(
     { queryKey: ["long-videos"] },
     (data) => filterInfinitePageCollection(data, "videos", postId),
   );
+  queryClient.setQueriesData(
+    { queryKey: ["saved-long-videos"] },
+    (data) =>
+      Array.isArray(data)
+        ? data.filter(
+            (row) =>
+              !row ||
+              typeof row !== "object" ||
+              (row as { id?: unknown }).id !== postId,
+          )
+        : data,
+  );
 }

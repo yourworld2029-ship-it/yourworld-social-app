@@ -1392,13 +1392,33 @@ export async function deleteMyPost(post: {
     objectsByBucket.set(object.bucket, paths);
   }
 
+  // Remove the authoritative database row before touching storage. If storage
+  // cleanup fails, the broken media row must not remain visible on profiles.
+  const { data: deletedRows, error } = await supabase
+    .from("posts")
+    .delete()
+    .eq("id", post.id)
+    .eq("user_id", sessionUserId)
+    .select("id");
+  if (error) {
+    console.error("Post deletion failed", error);
+    throw new Error(error.message);
+  }
+  if (!deletedRows?.length) {
+    throw new Error("This media is no longer available or you do not own it");
+  }
+
+  announcePostDeleted(post.id);
+
   for (const [bucket, paths] of objectsByBucket) {
     const { error: storageError } = await supabase.storage
       .from(bucket)
       .remove([...paths]);
     if (storageError) {
-      console.error(`Failed to remove media from ${bucket}`, storageError);
-      throw new Error(`Couldn't remove the media file from ${bucket}: ${storageError.message}`);
+      console.warn(
+        `Post ${post.id} was deleted, but storage cleanup failed for ${bucket}`,
+        storageError,
+      );
     }
   }
 
@@ -1432,21 +1452,6 @@ export async function deleteMyPost(post: {
     }
   }
 
-  const { data: deletedRows, error } = await supabase
-    .from("posts")
-    .delete()
-    .eq("id", post.id)
-    .eq("user_id", sessionUserId)
-    .select("id");
-  if (error) {
-    console.error("Post deletion failed", error);
-    throw new Error(error.message);
-  }
-  if (!deletedRows?.length) {
-    throw new Error("This media is no longer available or you do not own it");
-  }
-
-  announcePostDeleted(post.id);
 }
 
 /** Resolves a stored media reference to something an <img> can render. */

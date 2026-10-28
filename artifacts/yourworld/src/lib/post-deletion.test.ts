@@ -8,6 +8,7 @@ test("removing a post clears it from every cached social and video feed", () => 
   const socialKey = ["social-posts", "reel", "owner-1"] as const;
   const creatorMediaKey = ["social-posts", "creator-media", "owner-1"] as const;
   const videosKey = ["long-videos"] as const;
+  const savedVideosKey = ["saved-long-videos", "owner-1"] as const;
 
   queryClient.setQueryData(socialKey, {
     pages: [{ posts: [{ id: "deleted" }, { id: "kept-reel" }] }],
@@ -21,6 +22,7 @@ test("removing a post clears it from every cached social and video feed", () => 
     pages: [{ videos: [{ id: "deleted" }, { id: "kept-video" }] }],
     pageParams: [0],
   });
+  queryClient.setQueryData(savedVideosKey, [{ id: "deleted" }, { id: "kept-saved" }]);
 
   removeDeletedPostFromQueryCaches(queryClient, "deleted");
 
@@ -36,8 +38,10 @@ test("removing a post clears it from every cached social and video feed", () => 
       pages: Array<{ videos: Array<{ id: string }> }>;
       pageParams: number[];
   }>(videosKey);
+  const savedVideos = queryClient.getQueryData<Array<{ id: string }>>(savedVideosKey);
 
   assert.deepEqual(socialPosts?.pages[0]?.posts, [{ id: "kept-reel" }]);
   assert.deepEqual(creatorMedia?.pages[0]?.posts, [{ id: "kept-media" }]);
   assert.deepEqual(longVideos?.pages[0]?.videos, [{ id: "kept-video" }]);
+  assert.deepEqual(savedVideos, [{ id: "kept-saved" }]);
 });

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -50,6 +57,13 @@ import {
   nationalAwardLabel,
   type NationalAwardPublicBadge,
 } from "@/lib/national-award";
+import { fetchProfilePostCount } from "@/lib/profile-posts";
+import {
+  announcePostDeletedFromRealtime,
+  isPostDeleted,
+  subscribeToPostDeleted,
+} from "@/lib/post-deletion";
+import { supabase } from "@/integrations/supabase/client";
 
 export type ProfileTemplateProfile = {
   id: string;
@@ -169,10 +183,95 @@ export function ProfileTemplate({
   const [internalTab, setInternalTab] = useState<ProfileTab>("videos");
   const [nationalAwardBadge, setNationalAwardBadge] =
     useState<NationalAwardPublicBadge | null>(null);
+  const [postCount, setPostCount] = useState<number | null>(null);
+  const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
+  const profilePostsRef = useRef(posts);
+  const postCountRequestRef = useRef(0);
   const src = mediaSrc;
+  const refreshPostCount = useCallback(async () => {
+    const requestId = ++postCountRequestRef.current;
+    try {
+      const count = await fetchProfilePostCount(profile.id);
+      if (requestId === postCountRequestRef.current) setPostCount(count);
+    } catch (error) {
+      if (requestId === postCountRequestRef.current) setPostCount(null);
+      console.error("Could not load full profile post count.", error);
+    }
+  }, [profile.id]);
+
+  useEffect(() => {
+    profilePostsRef.current = posts;
+  }, [posts]);
+
+  useEffect(() => {
+    setPostCount(null);
+    setDeletedPostIds(new Set());
+    void refreshPostCount();
+  }, [profile.id, refreshPostCount]);
+
+  useEffect(() => {
+    void refreshPostCount();
+  }, [posts, refreshPostCount]);
+
+  const hideDeletedPost = useCallback(
+    (postId: string) => {
+      setDeletedPostIds((current) => {
+        if (current.has(postId)) return current;
+        const next = new Set(current);
+        next.add(postId);
+        return next;
+      });
+      void refreshPostCount();
+    },
+    [refreshPostCount],
+  );
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPostDeleted(hideDeletedPost);
+    const channel = supabase
+      .channel(`profile-post-deletions:${profile.id}`)
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "posts" },
+        (payload) => {
+          const oldRow = payload.old as { id?: unknown; user_id?: unknown };
+          if (typeof oldRow.id !== "string") return;
+          const knownProfilePost = profilePostsRef.current.some(
+            (post) => post.id === oldRow.id,
+          );
+          if (
+            oldRow.user_id === profile.id ||
+            knownProfilePost ||
+            typeof oldRow.user_id !== "string"
+          ) {
+            announcePostDeletedFromRealtime(payload);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [hideDeletedPost, profile.id]);
+
+  const isRemoved = useCallback(
+    (post: DbPost) =>
+      deletedPostIds.has(post.id) || isPostDeleted(post.id),
+    [deletedPostIds],
+  );
+  const visibleGrid = useMemo(
+    () => grid.filter((post) => !isRemoved(post)),
+    [grid, isRemoved],
+  );
+  const visibleReels = useMemo(
+    () => reels.filter((post) => !isRemoved(post)),
+    [isRemoved, reels],
+  );
   const videoItems = useMemo(
     () =>
-      sortPinned(grid).map((post) => {
+      sortPinned(visibleGrid).map((post) => {
         const extendedPost = post as DbPost & {
           thumbnail?: string | null;
           cover_image_url?: string | null;
@@ -196,11 +295,11 @@ export function ProfileTemplate({
           ratio: mediaAspect(post),
         };
       }),
-    [grid, src],
+    [src, visibleGrid],
   );
   const reelItems = useMemo(
     () =>
-      sortPinned(reels).map((post) => ({
+      sortPinned(visibleReels).map((post) => ({
         src: post.thumbnail_url ?? post.cover_image ?? post.media_url,
         mediaUrl: post.media_url,
         thumbnail: post.thumbnail_url ?? post.cover_image,
@@ -208,7 +307,7 @@ export function ProfileTemplate({
         post,
         ratio: mediaAspect(post),
       })),
-    [reels],
+    [visibleReels],
   );
   const activeTab: ProfileTab =
     selectedTab ??
@@ -353,7 +452,10 @@ export function ProfileTemplate({
           </div>
 
           <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:py-1">
-            <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
+            <Stat
+              label="Posts"
+              value={postCount === null ? "—" : formatCount(postCount)}
+            />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={onFollowersClick} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={onFollowingClick} />
           </dl>
@@ -441,7 +543,7 @@ export function ProfileTemplate({
         </TabsList>
 
         <TabsContent value="videos" className="mt-0">
-          {grid.length ? (
+          {visibleGrid.length ? (
             <MediaGrid
               onOpen={onOpen}
               onManage={onManage}
@@ -458,7 +560,7 @@ export function ProfileTemplate({
           ) : null}
         </TabsContent>
         <TabsContent value="reels" className="mt-0">
-          {reels.length ? (
+          {visibleReels.length ? (
             <MediaGrid onOpen={onOpen} onManage={onManage} items={reelItems} />
           ) : mediaLoading ? (
             <ProfileMediaSkeleton />
