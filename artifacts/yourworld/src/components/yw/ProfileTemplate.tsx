@@ -57,7 +57,7 @@ import {
   nationalAwardLabel,
   type NationalAwardPublicBadge,
 } from "@/lib/national-award";
-import { fetchProfilePostCount } from "@/lib/profile-posts";
+import { countProfileMediaRows } from "@/lib/profile-posts";
 import {
   announcePostDeletedFromRealtime,
   isPostDeleted,
@@ -183,35 +183,17 @@ export function ProfileTemplate({
   const [internalTab, setInternalTab] = useState<ProfileTab>("videos");
   const [nationalAwardBadge, setNationalAwardBadge] =
     useState<NationalAwardPublicBadge | null>(null);
-  const [postCount, setPostCount] = useState<number | null>(null);
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const profilePostsRef = useRef(posts);
-  const postCountRequestRef = useRef(0);
   const src = mediaSrc;
-  const refreshPostCount = useCallback(async () => {
-    const requestId = ++postCountRequestRef.current;
-    try {
-      const count = await fetchProfilePostCount(profile.id);
-      if (requestId === postCountRequestRef.current) setPostCount(count);
-    } catch (error) {
-      if (requestId === postCountRequestRef.current) setPostCount(null);
-      console.error("Could not load full profile post count.", error);
-    }
-  }, [profile.id]);
 
   useEffect(() => {
     profilePostsRef.current = posts;
   }, [posts]);
 
   useEffect(() => {
-    setPostCount(null);
     setDeletedPostIds(new Set());
-    void refreshPostCount();
-  }, [profile.id, refreshPostCount]);
-
-  useEffect(() => {
-    void refreshPostCount();
-  }, [posts, refreshPostCount]);
+  }, [profile.id]);
 
   const hideDeletedPost = useCallback(
     (postId: string) => {
@@ -221,9 +203,8 @@ export function ProfileTemplate({
         next.add(postId);
         return next;
       });
-      void refreshPostCount();
     },
-    [refreshPostCount],
+    [],
   );
 
   useEffect(() => {
@@ -268,6 +249,10 @@ export function ProfileTemplate({
   const visibleReels = useMemo(
     () => reels.filter((post) => !isRemoved(post)),
     [isRemoved, reels],
+  );
+  const postCount = useMemo(
+    () => countProfileMediaRows([...visibleGrid, ...visibleReels]),
+    [visibleGrid, visibleReels],
   );
   const videoItems = useMemo(
     () =>
@@ -454,7 +439,7 @@ export function ProfileTemplate({
           <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:py-1">
             <Stat
               label="Posts"
-              value={postCount === null ? "—" : formatCount(postCount)}
+              value={formatCount(postCount)}
             />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={onFollowersClick} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={onFollowingClick} />

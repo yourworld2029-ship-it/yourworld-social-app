@@ -51,6 +51,20 @@ type ProfilePostCountClient = {
 const defaultClient = supabase as unknown as ProfilePostsClient;
 const countClient = supabase as unknown as ProfilePostCountClient;
 
+/**
+ * The profile header must match the media currently represented by its grid,
+ * not a wider database result containing stale or not-yet-loaded rows.
+ */
+export function countProfileMediaRows(
+  posts: readonly Pick<DbPost, "id" | "kind">[],
+): number {
+  return new Set(
+    posts
+      .filter((post) => post.kind === "video" || post.kind === "reel")
+      .map((post) => post.id),
+  ).size;
+}
+
 async function readOptionalRows(
   load: () => PromiseLike<PostCountResult>,
   label: string,

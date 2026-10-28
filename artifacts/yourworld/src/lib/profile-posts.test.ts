@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fetchProfilePostCount } from "./profile-posts";
+import { countProfileMediaRows, fetchProfilePostCount } from "./profile-posts";
 
 type QueryResult = {
   count: number | null;
@@ -74,6 +74,18 @@ test("profile count remains available when optional profile tables reject reads"
   );
 
   assert.equal(result, 17);
+});
+
+test("profile Posts count matches loaded non-deleted Videos and Reels only", () => {
+  const rows = [
+    { id: "video-1", kind: "video" },
+    { id: "video-2", kind: "video" },
+    { id: "reel-1", kind: "reel" },
+    { id: "moment-1", kind: "moment" },
+    { id: "image-1", kind: "photo" },
+    { id: "video-1", kind: "video" },
+  ] as never;
+  assert.equal(countProfileMediaRows(rows), 3);
 });
 
 test("profile count includes readable accepted collaboration Reels", async () => {

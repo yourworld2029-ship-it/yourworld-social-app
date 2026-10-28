@@ -26,6 +26,7 @@
 - [Secret Lock code policy](secret-lock-code-policy.md) — codes are 4–8 alphanumeric characters with no recovery; keep legacy numeric hashes verifiable.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.
 - [Profile avatar display](moment-profile-joins.md) — resolve profile photos in Reel, Moment, and ShareSheet recipient avatars; keep initials as the fallback.
+- [Profile post count](profile-post-count.md) — derive Posts from the displayed active Video/Reel grid, exclude Moments and locally deleted rows, and update immediately after removal.
 - [Chat retention and capture alerts](chat-retention-and-alerts.md) — server-enforce lifetime defaults; after-view is media-only and capture alerts are recipient-preference broadcasts.
 - [Follow and view schema](follow-and-view-schema.md) — follow mutations and unique views must use live RPCs, profile counters, and posts.views_count.
 - [Fullscreen player controls](fullscreen-player-controls.md) — gate lock state, gestures, and HUD overlays to fullscreen and keep JSX control wrappers explicit.
