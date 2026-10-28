@@ -173,38 +173,128 @@ type TunedEncoding = RTCRtpEncodingParameters & {
   networkPriority?: "very-low" | "low" | "medium" | "high";
 };
 
+export type CallRtpStatsSample = {
+  id?: string;
+  type?: string;
+  kind?: string;
+  mediaType?: string;
+  fractionLost?: number;
+  packetsReceived?: number;
+  packetsLost?: number;
+};
+
+export type CallPacketLoss = {
+  audio: number | null;
+  video: number | null;
+};
+
+export type CallNetworkTier = "healthy" | "degraded" | "critical" | "unknown";
+
+export function collectCallPacketLoss(
+  reports: readonly CallRtpStatsSample[],
+  previousCounters: Map<string, { received: number; lost: number }>,
+): CallPacketLoss {
+  const loss: CallPacketLoss = { audio: null, video: null };
+  for (const report of reports) {
+    const kind = report.kind ?? report.mediaType;
+    if (kind !== "audio" && kind !== "video") continue;
+
+    let fraction: number | null = null;
+    if (
+      report.type === "remote-inbound-rtp" &&
+      typeof report.fractionLost === "number" &&
+      Number.isFinite(report.fractionLost)
+    ) {
+      fraction = report.fractionLost;
+    } else if (
+      report.type === "inbound-rtp" &&
+      report.id &&
+      typeof report.packetsReceived === "number" &&
+      typeof report.packetsLost === "number"
+    ) {
+      const received = Math.max(0, report.packetsReceived);
+      const lost = Math.max(0, report.packetsLost);
+      const previous = previousCounters.get(report.id);
+      previousCounters.set(report.id, { received, lost });
+      if (previous) {
+        const receivedDelta = Math.max(0, received - previous.received);
+        const lostDelta = Math.max(0, lost - previous.lost);
+        const total = receivedDelta + lostDelta;
+        if (total > 0) fraction = lostDelta / total;
+      }
+    }
+
+    if (fraction === null) continue;
+    const safeFraction = Math.max(0, Math.min(1, fraction));
+    loss[kind] = Math.max(loss[kind] ?? 0, safeFraction);
+  }
+  return loss;
+}
+
+export function classifyCallNetwork(
+  audioLoss: number | null,
+  videoLoss: number | null,
+): CallNetworkTier {
+  const samples = [audioLoss, videoLoss].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+  if (!samples.length) return "unknown";
+  const worstLoss = Math.max(...samples);
+  if (worstLoss >= 0.25) return "critical";
+  if (worstLoss >= 0.08) return "degraded";
+  if (worstLoss <= 0.02) return "healthy";
+  return "unknown";
+}
+
+export function callVideoScaleTo240p(track?: MediaStreamTrack | null): number {
+  const settings = track?.getSettings?.();
+  const width = settings?.width ?? 0;
+  const height = settings?.height ?? 0;
+  if (width <= 0 || height <= 0) return 3;
+  const portrait = height > width;
+  const targetWidth = portrait ? 240 : 426;
+  const targetHeight = portrait ? 426 : 240;
+  return Math.max(1, width / targetWidth, height / targetHeight);
+}
+
 /**
  * Keep one full-resolution video layer with a predictable 1.5 Mbps ceiling.
  * The fallback removes networkPriority for browsers that reject that optional
  * encoding field while preserving the bitrate and priority settings.
  */
-export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
+export async function tuneCallVideoSender(
+  sender: RTCRtpSender,
+  lowBandwidth = false,
+): Promise<void> {
   if (sender.track?.kind !== "video") return;
   const performance = getAdaptivePerformanceSnapshot();
   const current = sender.getParameters();
   const encodings = current.encodings?.length ? current.encodings : [{}];
+  const scaleResolutionDownBy = lowBandwidth
+    ? callVideoScaleTo240p(sender.track)
+    : performance.videoScaleResolutionDownBy;
   const tuned = encodings.map(
     (encoding) =>
       ({
         ...encoding,
-        maxBitrate: performance.videoBitrate,
-        maxFramerate: performance.videoFrameRate,
-        priority: "high",
-        networkPriority: "high",
-        scaleResolutionDownBy: performance.videoScaleResolutionDownBy,
+        maxBitrate: lowBandwidth ? 150_000 : performance.videoBitrate,
+        maxFramerate: lowBandwidth ? 15 : performance.videoFrameRate,
+        priority: lowBandwidth ? "low" : "high",
+        networkPriority: lowBandwidth ? "low" : "high",
+        scaleResolutionDownBy,
       }) as TunedEncoding,
   );
 
   try {
     current.encodings = tuned;
-    current.degradationPreference = performance.networkQuality === "fast"
+    current.degradationPreference = !lowBandwidth && performance.networkQuality === "fast"
       ? "maintain-framerate"
       : "balanced";
     await sender.setParameters(current);
   } catch {
     const fallback = sender.getParameters();
     fallback.encodings = tuned.map(({ networkPriority: _networkPriority, ...encoding }) => encoding);
-    fallback.degradationPreference = performance.networkQuality === "fast"
+    fallback.degradationPreference = !lowBandwidth && performance.networkQuality === "fast"
       ? "maintain-framerate"
       : "balanced";
     try {
@@ -216,18 +306,22 @@ export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
   }
 }
 
-export async function prioritizeCallAudioSender(sender: RTCRtpSender): Promise<void> {
+export async function prioritizeCallAudioSender(
+  sender: RTCRtpSender,
+  lowBandwidth = false,
+): Promise<void> {
   if (sender.track?.kind !== "audio") return;
   const current = sender.getParameters();
   const encodings = current.encodings?.length ? current.encodings : [{}];
-  const tuned = encodings.map(
-    (encoding) =>
-      ({
-        ...encoding,
-        priority: "high",
-        networkPriority: "high",
-      }) as TunedEncoding,
-  );
+  const tuned = encodings.map((encoding) => {
+    const { maxBitrate: _previousMaxBitrate, ...rest } = encoding;
+    return {
+      ...rest,
+      ...(lowBandwidth ? { maxBitrate: 10_000 } : {}),
+      priority: "high",
+      networkPriority: "high",
+    } as TunedEncoding;
+  });
   try {
     current.encodings = tuned;
     await sender.setParameters(current);

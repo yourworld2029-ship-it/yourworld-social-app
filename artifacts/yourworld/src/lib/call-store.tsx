@@ -47,8 +47,11 @@ import {
   getCallMedia,
   getCallVideo,
   isCallMediaPermissionError,
+  classifyCallNetwork,
+  collectCallPacketLoss,
   prioritizeCallAudioSender,
   tuneCallVideoSender,
+  type CallRtpStatsSample,
 } from "@/lib/webrtc-media";
 import { CallPermissionDialog } from "@/components/yw/CallPermissionDialog";
 import {
@@ -565,6 +568,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const videoEffectPipeline = useRef<CallVideoEffectPipeline | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const reconnectAttempt = useRef(0);
+  const mediaStatsTimer = useRef<number | null>(null);
+  const lowBandwidthCallRef = useRef(false);
+  const incomingVideoPaused = useRef(false);
   const callRef = useRef<CallState | null>(null);
   const meRef = useRef<string | null>(null);
   const isGuestRef = useRef(true);
@@ -641,9 +647,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!peer || !activeCallId || phase === "idle") return;
     for (const sender of peer.getSenders()) {
       if (sender.track?.kind === "video") {
-        void tuneCallVideoSender(sender);
+        void tuneCallVideoSender(sender, lowBandwidthCallRef.current);
       } else if (sender.track?.kind === "audio") {
-        void prioritizeCallAudioSender(sender);
+        void prioritizeCallAudioSender(sender, lowBandwidthCallRef.current);
       }
     }
   }, [
@@ -824,7 +830,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
     }
+    if (mediaStatsTimer.current) {
+      window.clearInterval(mediaStatsTimer.current);
+      mediaStatsTimer.current = null;
+    }
     reconnectAttempt.current = 0;
+    lowBandwidthCallRef.current = false;
+    incomingVideoPaused.current = false;
     videoEffectPipeline.current?.stop();
     videoEffectPipeline.current = null;
     cameraSourceTrack.current = null;
@@ -1138,8 +1150,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       for (const sender of pc.getSenders()) {
-        if (sender.track?.kind === "video") void tuneCallVideoSender(sender);
-        if (sender.track?.kind === "audio") void prioritizeCallAudioSender(sender);
+        if (sender.track?.kind === "video") {
+          void tuneCallVideoSender(sender, lowBandwidthCallRef.current);
+        }
+        if (sender.track?.kind === "audio") {
+          void prioritizeCallAudioSender(sender, lowBandwidthCallRef.current);
+        }
       }
       pc.onicecandidate = (e) => {
         if (!e.candidate) return;
@@ -1156,7 +1172,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!s) s = new MediaStream();
         if (!e.streams[0] && !s.getTracks().includes(e.track)) s.addTrack(e.track);
         remoteStream.current = s;
-        if (e.track.kind === "video") setRemoteVideoReady(false);
+        if (e.track.kind === "video") {
+          e.track.enabled = !incomingVideoPaused.current;
+          setRemoteVideoReady(false);
+        }
         // Explicitly attach the received remote stream to the main full-screen
         // <video> element immediately, then retry on the next frame in case the
         // ref wasn't bound yet (e.g. track arrives before the element mounts).
