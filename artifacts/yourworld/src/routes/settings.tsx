@@ -648,9 +648,6 @@ function SettingsPage() {
             disabled={preferencesLoading}
             onClick={() => persistPreference("readReceipts", !preferences.readReceipts)}
           />
-          <p className="px-3 pb-2 text-[11px] leading-relaxed text-muted-foreground">
-            {t("messageRequestNote")}
-          </p>
         </Panel>
       )}
 
