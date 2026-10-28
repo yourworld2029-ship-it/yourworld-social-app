@@ -134,6 +134,23 @@ function CopyrightPolicyPage() {
               described in Section 4.
             </li>
           </ol>
+          <div className="space-y-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm leading-relaxed text-zinc-300">
+            <p>
+              <span className="font-semibold text-white">Earnings Hold:</span> When a formal
+              copyright takedown or content violation is filed, all pending or unpaid earnings
+              attributed to the flagged content are immediately placed on a 7-day administrative
+              hold pending review. Verified violations will result in permanent forfeiture of held
+              funds.
+            </p>
+            <p>
+              <span className="font-semibold text-white">
+                Monetization &amp; View Integrity:
+              </span>{" "}
+              Monetization progress requires authentic, verified public viewership. Watch time
+              generated via unauthenticated guest sessions, automated bots, or manipulated traffic
+              is strictly excluded and deducted from creator analytics.
+            </p>
+          </div>
           <p className="rounded-lg bg-zinc-900 p-3 text-xs text-zinc-400">
             Your notice must include: your physical or electronic signature; identification of the
             copyrighted work; identification of the infringing material to be removed; your
