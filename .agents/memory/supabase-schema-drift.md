@@ -44,3 +44,9 @@ For Reel collaborations, do not assume `public.posts` has `tagged_user_ids` or `
 **Why:** Compatibility writes can silently drop an unknown collaborator field, and a query against a missing audience column fails. A separate invite record is also required to ensure a collaborator appears only after accepting.
 
 **How to apply:** Verify live post columns first; create one pending invite through an owner-checked RPC, let only the invited user accept or decline, and read accepted collaborator IDs through a narrowly scoped RPC. Do not attempt a backfill from columns that do not exist.
+
+For creator video visibility, the runtime `public.posts` table uses `video_access`; it has no `visibility` or `is_deleted` columns.
+
+**Why:** Live schema inspection for creator watch-hour aggregation confirmed those requested names are absent, so referencing them directly would fail and adding guessed columns would risk schema drift.
+
+**How to apply:** Require `video_access = 'public'` for public creator watch time, and treat deleted rows according to the runtime post deletion behavior rather than introducing guessed flags.
