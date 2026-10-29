@@ -518,3 +518,17 @@ mtime_ms = 1793255169974
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/c3f7db70-cc8d-471a-a0c3-7c5c0d3df18b/527aa87b-2761-48b9-b477-e5f57ebd3696"
 storage_version_token = "1793255197764089"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "xSpce6xOI1xRxzDzP20UC"
+uri = "file://.local/outputs/ad-revenue-share.chart.html"
+type = "text"
+title = "Ad revenue split stays 70/30"
+description = "Current backend formula: 70% of gross ad revenue to the creator and 30% to YourWorld. This split was not changed by the latest update."
+logical_id = "66765519-4050-4e39-8be8-f18d180fd0f5"
+content_hash = "sha256:9e9ba32ef130f74b0e7b82cb5b688c8a4d111923f71b29fccb2c6f78328f1107"
+size = 2569
+mtime_ms = 1793259339480
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/66765519-4050-4e39-8be8-f18d180fd0f5/af000ebc-877f-436c-8f14-6aae823e454f"
+storage_version_token = "1793259341379096"
+content_type = "text/html;profile=replit-chart"
