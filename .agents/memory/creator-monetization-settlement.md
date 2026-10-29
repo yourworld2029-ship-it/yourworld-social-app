@@ -3,7 +3,7 @@ name: Creator monetization settlement
 description: Server-authoritative creator revenue splits, buyer surcharge, payout TDS, and agreement gating.
 ---
 
-Direct Course/VIP earnings use the base price as the settlement base: buyers pay an additional 2% gateway surcharge, creators receive 85%, and the platform receives 15%. Ads and view revenue use a 70% creator / 30% platform split. Payout requests use the creator share as the threshold balance and deduct 1% TDS under Section 194-O exactly once.
+Direct Course/VIP earnings use the base price as the settlement base: buyers pay an additional 2% gateway surcharge, creators receive 80%, and the platform receives 20%. Ads and view revenue use a 70% creator / 30% platform split. Payout requests use the creator share as the threshold balance and deduct 1% TDS under Section 194-O exactly once.
 
 **Why:** Creator-facing balances must not expose platform cuts or accidentally reduce the creator share with buyer gateway fees or duplicate TDS.
 
@@ -31,11 +31,11 @@ Confirmed copyright/fraud findings may hold unpaid earnings linked to the conten
 
 **How to apply:** Keep held creator shares out of available balance and payout requests, show them separately in the wallet, require an audited admin release, and preserve the current manual payout flow.
 
-Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, reserve the full 15% platform commission, deduct the actual gateway charge or 2.36% estimate from the creator amount, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
+Paid-video purchases use an 80% creator / 20% platform split, with the actual gateway charge or 2.36% fallback estimate deducted from the creator remainder. Video-ad settlements are recorded as source `ads` and use the 70% creator / 30% platform split, including eligible saved Live replay posts.
 
-**Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.
+**Why:** Keep paid-video commission distinct from ad revenue, and preserve the confirmed 70/30 ad share for saved Live replay earnings.
 
-**How to apply:** Treat the payment provider's verified reference as the idempotency key, validate it against `posts.price`, and keep all balance changes inside the database transaction.
+**How to apply:** Keep the database earning-share helpers authoritative; classify ad settlements as `ads`, paid-video purchases as `video`, and deduct gateway fees only according to each flow's existing rule.
 
 In-app playback must not bypass paid/VIP access checks: only resolve a restricted video's media URL after confirming the creator or an active user-specific access grant. Feed autoplay and poster-frame extraction are limited to public, free videos.
 
