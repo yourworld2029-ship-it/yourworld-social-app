@@ -532,3 +532,17 @@ mtime_ms = 1793259339480
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/66765519-4050-4e39-8be8-f18d180fd0f5/af000ebc-877f-436c-8f14-6aae823e454f"
 storage_version_token = "1793259341379096"
 content_type = "text/html;profile=replit-chart"
+
+[[outputs]]
+id = "uw4W57LNwO4KU8gnOiFwU"
+uri = "file://.local/outputs/full-revenue-split-rupee.chart.html"
+type = "text"
+title = "Full YourWorld revenue split: ₹500 examples"
+description = "₹500 example across ads, courses, VIP, and paid long-video; shows creator share, platform share, and payment gateway fee. Paid-video gateway is an estimate, and TDS is separate."
+logical_id = "70b42100-3a66-46f7-a3d0-3af5589279a8"
+content_hash = "sha256:1ce6065f5cb5d958ab65d1e610950cf5d16a0b2eb3a553c6b1f6da2442f042d1"
+size = 3820
+mtime_ms = 1793259581260
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/70b42100-3a66-46f7-a3d0-3af5589279a8/39028d7f-0689-4050-acd5-68807cec49c4"
+storage_version_token = "1793259582918620"
+content_type = "text/html;profile=replit-chart"
