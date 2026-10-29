@@ -49,6 +49,8 @@ export type NotificationItem = {
   activity?: string;
   actorAvatarUrls?: Array<string | null>;
   body?: string;
+  /** Critical legal alerts remain visible even when their category is muted. */
+  alwaysShow?: boolean;
   /** epoch ms */
   at: number;
   read: boolean;
@@ -775,6 +777,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       actorId: r.actor_id ?? undefined,
       actorAvatarUrls: r.actor_id ? [avatarOf(r.actor_id)] : undefined,
       body: isMomentMention ? undefined : r.body ?? undefined,
+      alwaysShow:
+        kind === "monetization" &&
+        r.metadata?.alert_type === "copyright_takedown",
       at: ts(r.created_at),
       commentId: kind === "comment" ? commentId || undefined : undefined,
       commentLikedByMe:
@@ -931,7 +936,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       ? []
       : events
           .filter((i) => !removed.has(i.id))
-          .filter((i) => prefs[i.kind])
+          .filter((i) => i.alwaysShow || prefs[i.kind])
           .map((i) => ({ ...i, read: read.has(i.id) }));
 
     const unreadByKind = Object.fromEntries(

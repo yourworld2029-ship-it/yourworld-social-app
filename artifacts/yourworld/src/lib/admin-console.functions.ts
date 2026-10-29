@@ -424,8 +424,19 @@ export const reviewCopyrightReport = createServerFn({ method: "POST" })
     if (readError) throw new Error(readError.message);
     if (!report || report.status !== "pending") throw new Error("This copyright report is no longer pending.");
 
+    let creatorUserId: string | null = null;
+    let creatorEmail: string | null = null;
+    const contentLabel = report.reported_moment_id ? "Moment" : "video";
+
     if (data.action === "takedown") {
       if (report.reported_post_id) {
+        const { data: post, error: postError } = await admin
+          .from("posts")
+          .select("user_id")
+          .eq("id", report.reported_post_id)
+          .maybeSingle();
+        if (postError) throw new Error(postError.message);
+        creatorUserId = post?.user_id ?? null;
         const rpc = admin as unknown as AdminRpcClient;
         const { error: holdError } = await rpc.rpc("hold_creator_earnings_for_post", {
           p_post_id: report.reported_post_id,
@@ -437,13 +448,31 @@ export const reviewCopyrightReport = createServerFn({ method: "POST" })
         if (error) throw new Error(error.message);
       }
       if (report.reported_moment_id) {
+        const { data: moment, error: momentError } = await admin
+          .from("moments")
+          .select("user_id")
+          .eq("id", report.reported_moment_id)
+          .maybeSingle();
+        if (momentError) throw new Error(momentError.message);
+        creatorUserId ??= moment?.user_id ?? null;
         const { error } = await admin.from("moments").delete().eq("id", report.reported_moment_id);
         if (error) throw new Error(error.message);
+      }
+      if (creatorUserId) {
+        const { data: creatorAuth, error: creatorAuthError } =
+          await admin.auth.admin.getUserById(creatorUserId);
+        if (creatorAuthError) {
+          console.warn("[copyright-takedown] Could not retrieve creator email.", {
+            reportId: report.id,
+          });
+        } else if (creatorAuth.user?.email && creatorAuth.user.email_confirmed_at) {
+          creatorEmail = creatorAuth.user.email;
+        }
       }
     }
 
     const now = new Date().toISOString();
-    const { error: updateError } = await admin
+    const { data: resolvedReport, error: updateError } = await admin
       .from("copyright_reports")
       .update({
         status: data.action === "takedown" ? "resolved" : "rejected",
@@ -453,14 +482,74 @@ export const reviewCopyrightReport = createServerFn({ method: "POST" })
         resolved_at: now,
       })
       .eq("id", data.reportId)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
     if (updateError) throw new Error(updateError.message);
+    if (!resolvedReport) throw new Error("This copyright report was already reviewed.");
     await writeAudit(admin, context, report.reporter_user_id, `copyright_${data.action}`, data.reason, {
       reportId: data.reportId,
       reportedPostId: report.reported_post_id,
       reportedMomentId: report.reported_moment_id,
     });
-    return { status: data.action === "takedown" ? "resolved" : "rejected" };
+
+    let creatorAlertCreated = false;
+    let emailSent = false;
+    if (data.action === "takedown" && creatorUserId) {
+      const alertBody =
+        `An admin-reviewed copyright takedown was applied to your ${contentLabel}. ` +
+        `The content has been removed. Reason: ${data.reason}`;
+      const { error: notificationError } = await admin
+        .from("notifications" as never)
+        .insert({
+          recipient_id: creatorUserId,
+          actor_id: null,
+          kind: "monetization",
+          title: "Copyright takedown applied",
+          body: alertBody,
+          entity_type: "copyright_report",
+          entity_id: report.id,
+          metadata: {
+            alert_type: "copyright_takedown",
+            copyright_report_id: report.id,
+            post_id: report.reported_post_id,
+            moment_id: report.reported_moment_id,
+          },
+          read: false,
+        } as never);
+      if (notificationError) {
+        console.error("[copyright-takedown] Creator notification could not be saved.", {
+          reportId: report.id,
+          code: notificationError.code,
+        });
+      } else {
+        creatorAlertCreated = true;
+      }
+
+      if (creatorEmail) {
+        const emailText =
+          `A copyright takedown was upheld after review for your YourWorld ${contentLabel}. ` +
+          `The content has been removed. Reason: ${data.reason}\n\n` +
+          "For next steps, review Copyright & DMCA Policy under Help & Support in the app.";
+        const emailResult = await sendTransactionalEmail({
+          to: creatorEmail,
+          subject: "Copyright warning for your YourWorld content",
+          text: emailText,
+          html: `<p>A copyright takedown was upheld after review for your YourWorld ${escapeEmailHtml(contentLabel)}.</p><p>The content has been removed.</p><p><strong>Reason:</strong> ${escapeEmailHtml(data.reason)}</p><p>For next steps, review Copyright &amp; DMCA Policy under Help &amp; Support in the app.</p><p>— YourWorld Creator Admin</p>`,
+        });
+        emailSent = emailResult.sent;
+        if (!emailResult.sent) {
+          console.warn("[copyright-takedown] Creator warning email was not sent.", {
+            reportId: report.id,
+          });
+        }
+      }
+    }
+    return {
+      status: data.action === "takedown" ? "resolved" : "rejected",
+      creatorAlertCreated,
+      emailSent,
+    };
   });
 
 const restrictionSchema = z.object({
