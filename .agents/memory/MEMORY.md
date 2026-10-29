@@ -3,7 +3,7 @@
 - [Reels change boundary](reels-change-boundary.md) — keep Reels work limited to requested player changes and preserve other Reels and app features.
 - [Private media playback](private-media-playback.md) — preserve stored signed media URLs when anonymous clients cannot re-sign private Supabase objects.
 - [Supabase project identity](supabase-project-identity.md) — treat Replit Secrets as authoritative; management connections may target a different project.
-- [Supabase schema drift](supabase-schema-drift.md) — preserve live data by adapting app writes to reported missing columns instead of resetting or blindly migrating.
+- [Supabase schema drift](supabase-schema-drift.md) — preserve live data; inspect payout helpers because live settlement tables may differ from local migrations.
 - [Orval integer schemas](orval-integer-schemas.md) — OpenAPI integer currently emits invalid top-level `zod.int()`; use number for numeric counts.
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Video frame capture event order](video-frame-capture-event-order.md) — attach metadata and seek listeners before setting a local video source or seeking, or fast Blob playback may outrun thumbnail extraction.

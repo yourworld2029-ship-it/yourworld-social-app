@@ -56,3 +56,9 @@ For creator video visibility, the runtime `public.posts` table uses `video_acces
 **Why:** Live schema inspection for creator watch-hour aggregation confirmed those requested names are absent, so referencing them directly would fail and adding guessed columns would risk schema drift.
 
 **How to apply:** Require `video_access = 'public'` for public creator watch time, and treat deleted rows according to the runtime post deletion behavior rather than introducing guessed flags.
+
+The connected YourWorld production database has `creator_earnings` with an active `creator_earnings_split_trigger` and shared `creator_share_for_source` / `platform_share_for_source` helpers, but does not have `video_purchases` or a `settle_video_purchase_on_payment_success` function.
+
+**Why:** Applying an otherwise relevant purchase-settlement migration failed at function compilation because that relation is absent in the live schema.
+
+**How to apply:** Inspect live functions and tables before changing payout logic; update the existing share helpers for supported earning sources, and do not introduce the missing purchase ledger or settlement flow unless explicitly requested.
