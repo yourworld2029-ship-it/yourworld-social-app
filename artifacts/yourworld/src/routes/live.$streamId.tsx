@@ -1017,7 +1017,7 @@ function LiveSummary({
           Live ended
         </p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">Your summary</h1>
-        <div className="mt-7 grid grid-cols-3 gap-3">
+        <div className="mt-7 grid grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/45">
               Duration
@@ -1034,12 +1034,6 @@ function LiveSummary({
               <Users className="h-4 w-4 text-white/60" />
               {new Intl.NumberFormat("en").format(peakViewerCount)}
             </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/45">
-              Your earnings
-            </p>
-            <p className="mt-2 text-xl font-bold tabular-nums">₹0.00</p>
           </div>
         </div>
         {error && (
@@ -1059,14 +1053,16 @@ function LiveSummary({
           </p>
         )}
         <div className="mt-5 space-y-3">
-          <button
-            type="button"
-            onClick={() => void runAction("share")}
-            disabled={action !== null}
-            className="w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90 disabled:opacity-60"
-          >
-            {action === "share" ? "Sharing…" : "Share to Profile"}
-          </button>
+          {durationSeconds >= 90 && (
+            <button
+              type="button"
+              onClick={() => void runAction("share")}
+              disabled={action !== null}
+              className="w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90 disabled:opacity-60"
+            >
+              {action === "share" ? "Sharing…" : "Share to Profile"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void runAction("delete")}
