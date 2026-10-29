@@ -1,7 +1,10 @@
 import nodemailer from "nodemailer";
 import type { SendMailOptions } from "nodemailer";
 
-type TransactionalEmail = Pick<SendMailOptions, "to" | "bcc" | "subject" | "html" | "text" | "attachments">;
+type TransactionalEmail = Pick<
+  SendMailOptions,
+  "to" | "bcc" | "subject" | "html" | "text" | "attachments" | "replyTo"
+>;
 
 export type TransactionalEmailResult =
   | { sent: true }

@@ -46,7 +46,7 @@ function PrivacyPage() {
           <h1 className="text-xl font-bold">Privacy Policy</h1>
         </div>
 
-        <p className="text-xs text-zinc-500 mb-6">Last updated: September 22, 2026</p>
+        <p className="text-xs text-zinc-500 mb-6">Last updated: October 29, 2026</p>
 
         <Section title="1. Information We Collect">
           <p>
@@ -106,7 +106,39 @@ function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="4. Sharing">
+        <Section title="4. Data Retention & Deletion">
+          <p>
+            We keep account and profile information while your account is active. Posts, videos,
+            Reels, Moments, and other content remain available according to your audience settings
+            until you delete them or request account deletion. Deleting content removes it from
+            normal access and active product views; limited copies may remain temporarily in
+            provider backups or be retained where needed for security, dispute handling, or legal
+            obligations.
+          </p>
+          <p>
+            Messages and shared media are retained according to the conversation features and
+            retention options in the app. If you enable timed deletion, eligible messages or media
+            are removed under that setting. View Once media is handled separately and is not
+            treated as a general conversation-retention setting.
+          </p>
+          <p>
+            Private verification evidence, payment and tax records, reports, and records needed to
+            investigate abuse or comply with law may be retained only for the time reasonably
+            necessary for their stated purpose or the applicable legal requirement. Security,
+            diagnostic, and delivery logs are kept only as long as needed to operate, protect, and
+            troubleshoot the service. Backup expiry timing depends on the provider's backup cycle;
+            restored copies are subject to deletion again.
+          </p>
+          <p>
+            When an account-deletion request is verified and completed, we remove or anonymize
+            associated personal data from active systems, except information we must keep for legal,
+            payment, safety, fraud-prevention, or dispute-resolution purposes. Any retained
+            information is restricted to that purpose and deleted or anonymized when no longer
+            required.
+          </p>
+        </Section>
+
+        <Section title="5. Sharing">
           <p>
             We share data only as necessary to operate the platform, comply with legal obligations, or
             respond to verified copyright takedown requests (see our{" "}
@@ -124,7 +156,7 @@ function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="5. Your Rights">
+        <Section title="6. Your Rights">
           <p>
             You may view, edit, or delete your account data from Settings. You can manage visibility,
             blocked accounts, and notifications at any time. Depending on your location, you may also
@@ -133,7 +165,11 @@ function PrivacyPage() {
           <p>
             You may request deletion of your YourWorld account and associated personal data by using
             <strong> Settings → Account → Delete My Account</strong>. If you cannot use that control,
-            contact us at{" "}
+            submit a request through the public{" "}
+            <Link to="/delete-account" className="text-indigo-400 underline">
+              account deletion request form
+            </Link>{" "}
+            or contact us at{" "}
             <a href="mailto:Yourworld2029@gmail.com?subject=Account%20deletion" className="text-indigo-400 underline">
               Yourworld2029@gmail.com
             </a>{" "}
@@ -143,18 +179,18 @@ function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="6. Cookies & Local Storage">
+        <Section title="7. Cookies & Local Storage">
           <p>
             We use local storage and cookies to keep you signed in and remember preferences.
             Persistent authentication keeps you logged in across sessions unless you manually log out.
           </p>
         </Section>
 
-        <Section title="7. Children's Privacy">
+        <Section title="8. Children's Privacy">
           <p>YourWorld is not directed to children under 13 (or the applicable minimum age).</p>
         </Section>
 
-        <Section title="8. Grievance Officer & Contact">
+        <Section title="9. Grievance Officer & Contact">
           <p>
             If you have any questions, concerns, or requests regarding this Privacy Policy or data
             processing practices, contact our designated Grievance Officer:
@@ -177,21 +213,20 @@ function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="9. Future Advertising — Google AdMob">
+        <Section title="10. Advertising — Google AdMob">
           <p>
-            YourWorld does not currently include the Google AdMob SDK or serve Google AdMob
-            advertising. If AdMob is introduced in the future, Google and its advertising partners
-            may process or store information needed to serve, measure, secure, and limit advertising,
-            including device and app information, IP address, approximate location, diagnostics,
-            advertising identifiers such as the Android Advertising ID or IDFA where applicable, and
-            ad views or interactions.
+            The current YourWorld app build does not include the Google Mobile Ads (AdMob) SDK and
+            does not serve AdMob ads. If we enable AdMob, Google and its partners may process
+            device/app information, IP address, approximate location, diagnostics, advertising IDs
+            (such as Android Advertising ID or IDFA, where available), and ad impressions or
+            interactions to deliver, measure, prevent fraud in, and limit advertising.
           </p>
           <p>
-            Where required by law, we will present consent choices before using data for personalized
-            advertising. You will be able to make, change, or withdraw applicable consent choices
-            through the controls we provide and through available device or platform settings.
-            Non-personalized advertising may still use limited information necessary to deliver and
-            measure ads. We will update this policy before enabling AdMob advertising.
+            Before enabling AdMob, we will update this policy and provide consent or privacy choices
+            where required by law. Personalized ads will be shown only where permitted by the user's
+            choices and applicable rules. Non-personalized ads may still use limited information
+            needed for delivery, measurement, security, and fraud prevention. Users can also manage
+            advertising-ID and ad-privacy controls through their device settings.
           </p>
         </Section>
       </div>

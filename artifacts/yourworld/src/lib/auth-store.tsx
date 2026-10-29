@@ -38,7 +38,13 @@ type AuthValue = {
 const AuthContext = createContext<AuthValue | null>(null);
 
 /** Routes reachable without a session. */
-export const PUBLIC_ROUTES = ["/auth", "/reset-password", "/verify-2fa"];
+export const PUBLIC_ROUTES = [
+  "/auth",
+  "/reset-password",
+  "/verify-2fa",
+  "/privacy",
+  "/delete-account",
+];
 
 function isGuestBrowsableRoute(pathname: string) {
   if (pathname === "/" || pathname === "/reels") return true;

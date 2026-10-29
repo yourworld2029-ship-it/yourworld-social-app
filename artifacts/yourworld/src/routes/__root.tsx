@@ -294,6 +294,8 @@ function RootComponent() {
   const [isPlatformResolved, setIsPlatformResolved] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
+  const isPublicPolicyPage =
+    pathname === "/privacy" || pathname === "/delete-account";
   const isChatList = pathname === "/chat" || pathname === "/chat/";
   const isChatConversation = pathname.startsWith("/chat/") && !isChatList;
   const isMomentViewer =
@@ -302,6 +304,7 @@ function RootComponent() {
     pathname !== "/moment/create";
   const hideNav =
     isWatchPreview ||
+    isPublicPolicyPage ||
     isChatConversation ||
     isMomentViewer ||
     pathname.startsWith("/live") ||
@@ -500,7 +503,7 @@ function RootComponent() {
     return null;
   }
 
-  if (!isNativeApp && !isWatchPreview) {
+  if (!isNativeApp && !isWatchPreview && !isPublicPolicyPage) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black px-6 text-center text-white">
         <div className="max-w-sm">
@@ -540,7 +543,7 @@ function RootComponent() {
                                 <SafeProvider name="Upload">
                                   <UploadProvider>
                                     <VideoPlaybackProvider>
-                                       {!isWatchPreview && <DownloadBanner />}
+                                        {!isWatchPreview && !isPublicPolicyPage && <DownloadBanner />}
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
                                         <div

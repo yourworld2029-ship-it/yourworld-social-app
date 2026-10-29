@@ -19,6 +19,7 @@ import { Route as ChannelRouteImport } from './routes/channel'
 import { Route as CommunityGuidelinesRouteImport } from './routes/community-guidelines'
 import { Route as CopyrightPolicyRouteImport } from './routes/copyright-policy'
 import { Route as CreateRouteImport } from './routes/create'
+import { Route as DeleteAccountRouteImport } from './routes/delete-account'
 import { Route as HelpCenterRouteImport } from './routes/help-center'
 import { Route as LicensesRouteImport } from './routes/licenses'
 import { Route as NotificationsRouteImport } from './routes/notifications'
@@ -101,6 +102,11 @@ const CopyrightPolicyRoute = CopyrightPolicyRouteImport.update({
 const CreateRoute = CreateRouteImport.update({
   id: '/create',
   path: '/create',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeleteAccountRoute = DeleteAccountRouteImport.update({
+  id: '/delete-account',
+  path: '/delete-account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HelpCenterRoute = HelpCenterRouteImport.update({
@@ -285,6 +291,7 @@ export interface FileRoutesByFullPath {
   '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/help-center': typeof HelpCenterRoute
   '/licenses': typeof LicensesRoute
   '/notifications': typeof NotificationsRoute
@@ -329,6 +336,7 @@ export interface FileRoutesByTo {
   '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/help-center': typeof HelpCenterRoute
   '/licenses': typeof LicensesRoute
   '/notifications': typeof NotificationsRoute
@@ -376,6 +384,7 @@ export interface FileRoutesById {
   '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/help-center': typeof HelpCenterRoute
   '/licenses': typeof LicensesRoute
   '/notifications': typeof NotificationsRoute
@@ -423,6 +432,7 @@ export interface FileRouteTypes {
     | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
+    | '/delete-account'
     | '/help-center'
     | '/licenses'
     | '/notifications'
@@ -467,6 +477,7 @@ export interface FileRouteTypes {
     | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
+    | '/delete-account'
     | '/help-center'
     | '/licenses'
     | '/notifications'
@@ -513,6 +524,7 @@ export interface FileRouteTypes {
     | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
+    | '/delete-account'
     | '/help-center'
     | '/licenses'
     | '/notifications'
@@ -560,6 +572,7 @@ export interface RootRouteChildren {
   CommunityGuidelinesRoute: typeof CommunityGuidelinesRoute
   CopyrightPolicyRoute: typeof CopyrightPolicyRoute
   CreateRoute: typeof CreateRoute
+  DeleteAccountRoute: typeof DeleteAccountRoute
   HelpCenterRoute: typeof HelpCenterRoute
   LicensesRoute: typeof LicensesRoute
   NotificationsRoute: typeof NotificationsRoute
@@ -657,6 +670,13 @@ declare module '@tanstack/react-router' {
       path: '/create'
       fullPath: '/create'
       preLoaderRoute: typeof CreateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/delete-account': {
+      id: '/delete-account'
+      path: '/delete-account'
+      fullPath: '/delete-account'
+      preLoaderRoute: typeof DeleteAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/help-center': {
@@ -963,6 +983,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommunityGuidelinesRoute: CommunityGuidelinesRoute,
   CopyrightPolicyRoute: CopyrightPolicyRoute,
   CreateRoute: CreateRoute,
+  DeleteAccountRoute: DeleteAccountRoute,
   HelpCenterRoute: HelpCenterRoute,
   LicensesRoute: LicensesRoute,
   NotificationsRoute: NotificationsRoute,
