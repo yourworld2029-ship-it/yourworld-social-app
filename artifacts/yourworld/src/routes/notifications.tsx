@@ -22,6 +22,10 @@ import {
 import { cn } from "@/lib/utils";
 import { historyBackLink } from "@/lib/navigation";
 import { resolveNotificationCommentLikeState } from "@/lib/notification-routing";
+import {
+  matchesNotificationFilter,
+  type NotificationFilter,
+} from "@/lib/notification-filters";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useYw } from "@/lib/yw-store";
 import { useMoments } from "@/lib/moment-context";
@@ -50,15 +54,6 @@ export const Route = createFileRoute("/notifications")({
   component: NotificationsPage,
 });
 
-type Filter =
-  | "all"
-  | "likes"
-  | "following"
-  | "followers"
-  | "comments"
-  | "mentions"
-  | "monetization"
-  | "verified";
 type ActivityGroup = "Today" | "Yesterday" | "Last 7 days" | "Older";
 
 const ACTIVITY_GROUPS: ActivityGroup[] = ["Today", "Yesterday", "Last 7 days", "Older"];
@@ -89,7 +84,7 @@ function NotificationsPage() {
     useNotifications();
   const { following, toggleFollow } = useYw();
   const { moments, addMoment } = useMoments();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<NotificationFilter>("all");
   const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
   const [likedCommentIds, setLikedCommentIds] = useState<Record<string, boolean>>({});
   const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
@@ -259,16 +254,9 @@ function NotificationsPage() {
   };
 
   const list = useMemo(() => {
-    const filtered = items.filter((item) => {
-      if (filter === "all") return true;
-      if (filter === "following") return Boolean(item.actorId && following[item.actorId]);
-      if (filter === "followers") return item.kind === "follower";
-      if (filter === "likes") return item.kind === "like";
-      if (filter === "comments") return item.kind === "comment";
-      if (filter === "mentions") return item.kind === "mention";
-      if (filter === "monetization") return item.kind === "monetization";
-      return item.kind === "verification";
-    });
+    const filtered = items.filter((item) =>
+      matchesNotificationFilter(item, filter, following),
+    );
     return [...filtered].sort((a, b) => b.at - a.at);
   }, [items, filter, following]);
   const groupedItems = useMemo(

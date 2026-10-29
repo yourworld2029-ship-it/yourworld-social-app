@@ -25,7 +25,7 @@ import { resolveMediaUrl } from "@/lib/social-data";
 import { useAuth } from "@/lib/auth-store";
 import { useUserPreferences, type NotificationSettings } from "@/lib/user-preferences";
 const liveDb = supabase as unknown as {
-  from: (table: "likes" | "comments" | "posts" | "messages" | "moments") => ReturnType<typeof supabase.from>;
+  from: (table: "likes" | "comments" | "posts" | "messages" | "moments" | "follows") => ReturnType<typeof supabase.from>;
 };
 
 export type NotificationKind =
@@ -196,6 +196,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const [
     likes,
     comments,
+    follows,
     dms,
     momentNotifications,
     conversationPreferences,
@@ -220,6 +221,12 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
             .order("created_at", { ascending: false })
             .limit(40)
         : Promise.resolve({ data: [] }),
+      liveDb
+        .from("follows")
+        .select("id,follower_id,created_at")
+        .eq("following_id", me)
+        .order("created_at", { ascending: false })
+        .limit(40),
       supabase
         .from("messages" as never)
         .select("id,sender_id,receiver_id,conversation_id,content,media_url,voice_note_url,metadata,created_at" as never)
@@ -261,6 +268,11 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       post_id: string;
       user_id: string;
       content: string;
+      created_at: string;
+    }[],
+    follows: (follows.data ?? []) as {
+      id: string;
+      follower_id: string;
       created_at: string;
     }[],
     dms: ((dms.data ?? []) as unknown as {
@@ -326,6 +338,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     ...new Set([
       ...rows.likes.map((r) => r.user_id),
       ...rows.comments.map((r) => r.user_id),
+      ...rows.follows.map((r) => r.follower_id),
       ...rows.dms.map((r) => r.sender_id),
       ...rows.momentNotifications.flatMap((r) => (r.actor_id ? [r.actor_id] : [])),
     ]),
@@ -655,6 +668,28 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     });
   }
 
+  for (const r of rows.follows) {
+    const alreadyNotified = rows.momentNotifications.some(
+      (notification) =>
+        normalizeNotificationKind(notification.kind) === "follower" &&
+        notification.actor_id === r.follower_id &&
+        Math.abs(ts(notification.created_at) - ts(r.created_at)) < 120_000,
+    );
+    if (alreadyNotified) continue;
+    const actorName = nameOf(r.follower_id);
+    out.push({
+      id: `follow-${r.id}`,
+      kind: "follower",
+      title: `${actorName} started following you`,
+      actorId: r.follower_id,
+      actorName,
+      activity: "started following you",
+      actorAvatarUrls: [avatarOf(r.follower_id)],
+      at: ts(r.created_at),
+      to: contentLink(r.follower_id, "user"),
+    });
+  }
+
   for (const r of rows.dms)
     out.push({
       id: `dm-${r.id}`,
@@ -846,6 +881,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "comment_likes" }, reload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, reload)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, reload)
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, reload)
