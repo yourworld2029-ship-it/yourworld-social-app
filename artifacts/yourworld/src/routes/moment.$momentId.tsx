@@ -28,6 +28,7 @@ import {
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
 import { getMomentPlaybackWindow } from "@/lib/moment-parts";
@@ -1128,19 +1129,35 @@ function MomentViewRoute() {
                       const p = viewerProfiles.get(v.userId);
                       return (
                         <li key={v.userId} className="flex items-center gap-3">
-                          <div className="h-9 w-9 overflow-hidden rounded-full bg-neutral-700">
-                            {p?.avatarUrl ? (
-                              <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-                            ) : null}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-white">
-                              {p?.name ?? "User"}
-                            </p>
-                            <p className="truncate text-[11px] text-white/50">
-                              @{p?.username ?? "user"} · {timeAgo(v.at)}
-                            </p>
-                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Open ${p?.name ?? "User"}'s profile`}
+                            onClick={() =>
+                              void navigate({
+                                to: "/u/$userId",
+                                params: { userId: v.userId },
+                              })
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-3 border-0 bg-transparent p-0 text-left"
+                          >
+                            <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-700">
+                              <ProfileAvatar
+                                user={{
+                                  full_name: p?.name,
+                                  username: p?.username,
+                                  avatar_url: p?.avatarUrl,
+                                }}
+                              />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-white">
+                                {p?.name ?? "User"}
+                              </span>
+                              <span className="block truncate text-[11px] text-white/50">
+                                @{p?.username ?? "user"} · {timeAgo(v.at)}
+                              </span>
+                            </span>
+                          </button>
                           {v.screenshot ? (
                             <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
                               screenshot
