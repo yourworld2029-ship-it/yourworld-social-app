@@ -818,6 +818,9 @@ export function MediaGrid({
                 loading={eagerVideo ? "eager" : "lazy"}
                 fetchPriority={eagerVideo && i < 3 ? "high" : "auto"}
                 resolveFrameMediaSource={canReadPreview}
+                avoidBlackFrames={it.post?.kind === "video"}
+                frameCaptureTimeSeconds={it.post?.kind === "video" ? 1 : 0.1}
+                frameCacheKey={it.post?.kind === "video" ? `profile-video:${it.post.id}` : undefined}
                 showPlaceholderWhileLoading={eagerVideo}
                 className={`h-full w-full object-cover${eagerVideo ? " bg-gradient-to-br from-zinc-900 via-zinc-800 to-black" : ""}`}
               />

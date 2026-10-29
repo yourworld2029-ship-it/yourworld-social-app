@@ -14,3 +14,9 @@ For long-video uploads, treat the first `loadeddata` poster as a transient previ
 **Why:** saving the transient preview can suppress the dedicated nonzero-time frame capture, leaving a black thumbnail persisted with the video.
 
 **How to apply:** only persist a user-picked/captured thumbnail when one exists; otherwise run the source-frame generation path and store its uploaded image URL.
+
+An image HTTP 200 is not proof of a useful thumbnail: legacy long-video records can contain valid, entirely black image files as well as missing thumbnails. Repair existing thumbnail metadata from a visible source frame, not only the generator for future uploads.
+
+**Why:** repeated Profile Videos fixes missed successfully loaded black images, so image-error fallbacks never ran and older uploads stayed black.
+
+**How to apply:** inspect actual image pixels before diagnosing transport failures. For Profile Videos, reject almost entirely black frames and sample later timestamps using the shared decoder budget. Preserve meaningful dark scenes, authorization checks, originals, and unrelated Reels/Live behavior.

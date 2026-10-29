@@ -4,6 +4,7 @@ import { releaseListVideo } from "./media-release";
 import { cacheVideoPoster, getVideoPoster } from "./video-prefetch";
 import { resolveLongVideoUrl } from "./video-data";
 import { isHlsMediaUrl, supportsNativeHls } from "./video-playback-engine";
+import { hasBlackVideoPoster } from "./video-poster-blank";
 
 type Job = {
   url: string;
@@ -11,6 +12,7 @@ type Job = {
   signal: AbortSignal;
   done: (frame: string | null) => void;
   timeSeconds: number;
+  avoidBlackFrames: boolean;
 };
 const jobs: Job[] = [];
 let running = false;
@@ -22,10 +24,11 @@ export function requestVideoFirstFrame(
   done: Job["done"],
   timeSeconds = 0.1,
   cacheKey = url,
+  avoidBlackFrames = false,
 ) {
   const cached = getVideoPoster(cacheKey);
   if (cached) { done(cached); return; }
-  jobs.push({ url, cacheKey, signal, done, timeSeconds });
+  jobs.push({ url, cacheKey, signal, done, timeSeconds, avoidBlackFrames });
   pump();
 }
 
@@ -49,6 +52,8 @@ function pump() {
   let finished = false;
   const requestedTime = Number.isFinite(job.timeSeconds) ? Math.max(0, job.timeSeconds) : 0.1;
   let targetTime = requestedTime;
+  const laterFrames = [3, 10, 30];
+  let seekingLaterFrame = false;
   const finish = (frame: string | null) => {
     if (finished) return;
     finished = true;
@@ -71,7 +76,17 @@ function pump() {
   video.crossOrigin = "anonymous";
   video.preload = "metadata";
   const capture = () => {
-    if (video.readyState < 2 || !video.videoWidth) return;
+    if (finished || video.readyState < 2 || !video.videoWidth ||
+        (seekingLaterFrame && video.seeking)) return;
+    if (job.avoidBlackFrames && hasBlackVideoPoster(video)) {
+      const next = laterFrames.find((time) => time > targetTime + 0.1 &&
+        (!Number.isFinite(video.duration) || time < video.duration - 0.1));
+      if (next === undefined) { finish(null); return; }
+      targetTime = next;
+      seekingLaterFrame = true;
+      try { video.currentTime = next; } catch { finish(null); }
+      return;
+    }
     finish(cacheVideoPoster(video, job.cacheKey));
   };
   video.addEventListener("loadedmetadata", () => {
