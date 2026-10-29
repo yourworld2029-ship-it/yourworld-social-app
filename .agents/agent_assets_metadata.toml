@@ -504,3 +504,17 @@ mtime_ms = 1793005300666
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/94dde709-f6ce-4422-bf78-4602f22f89be/bc1f041f-3064-4faa-950f-832cdeb9a749"
 storage_version_token = "1793005583687487"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "mNbWV5KxY0D1xjVDpepUH"
+uri = "file://generated-artifacts/YourWorld-Revenue-Splits-AdMob-Roman-Hindi.pdf"
+type = "pdf"
+title = "YourWorld Revenue Split aur AdMob Status PDF"
+description = "Roman Hindi mein code-based summary: AdMob active hai ya nahi, creator/app revenue splits, gateway charges, paid video example, TDS aur payout rules."
+logical_id = "c3f7db70-cc8d-471a-a0c3-7c5c0d3df18b"
+content_hash = "sha256:57997e6b25aaa0f07660da6c532ebde8793e925adfa977b2a055c863e2748818"
+size = 128356
+mtime_ms = 1793255169974
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/c3f7db70-cc8d-471a-a0c3-7c5c0d3df18b/527aa87b-2761-48b9-b477-e5f57ebd3696"
+storage_version_token = "1793255197764089"
+content_type = "application/pdf"
