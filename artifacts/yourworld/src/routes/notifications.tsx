@@ -21,6 +21,7 @@ import {
 } from "@/lib/notifications-store";
 import { cn } from "@/lib/utils";
 import { historyBackLink } from "@/lib/navigation";
+import { resolveNotificationCommentLikeState } from "@/lib/notification-routing";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useYw } from "@/lib/yw-store";
 import { useMoments } from "@/lib/moment-context";
@@ -169,49 +170,13 @@ function NotificationsPage() {
     () => allItems.filter((i) => i.kind !== "message"),
     [allItems],
   );
-  const notificationCommentIds = useMemo(
-    () => [...new Set(items.flatMap((item) => item.commentId ? [item.commentId] : []))],
-    [items],
-  );
-  useEffect(() => {
-    let cancelled = false;
-    const loadCommentLikes = async () => {
-      if (!notificationCommentIds.length) {
-        setLikedCommentIds({});
-        return;
-      }
-      try {
-        const { data: auth, error: authError } = await supabase.auth.getSession();
-        const userId = auth.session?.user.id;
-        if (authError || !userId) {
-          if (!cancelled) setLikedCommentIds({});
-          return;
-        }
-        const { data, error } = await supabase
-          .from("comment_likes")
-          .select("comment_id")
-          .eq("user_id", userId)
-          .in("comment_id", notificationCommentIds);
-        if (error) throw error;
-        if (!cancelled) {
-          setLikedCommentIds(
-            Object.fromEntries((data ?? []).map((row) => [row.comment_id, true])),
-          );
-        }
-      } catch (error) {
-        if (!cancelled) console.error("Unable to load notification comment likes", error);
-      }
-    };
-    void loadCommentLikes();
-    return () => {
-      cancelled = true;
-    };
-  }, [notificationCommentIds]);
-
   const toggleNotificationCommentLike = async (item: NotificationItem) => {
     const commentId = item.commentId;
     if (!commentId || pendingCommentLikes[commentId]) return;
-    const wasLiked = Boolean(likedCommentIds[commentId]);
+    const wasLiked = resolveNotificationCommentLikeState(
+      item.commentLikedByMe,
+      likedCommentIds[commentId],
+    );
     setPendingCommentLikes((current) => ({ ...current, [commentId]: true }));
     setLikedCommentIds((current) => ({ ...current, [commentId]: !wasLiked }));
     try {
@@ -410,7 +375,15 @@ function NotificationsPage() {
                       item={item}
                       prioritizeThumbnail={index < 6}
                       following={Boolean(item.actorId && following[item.actorId])}
-                      commentLiked={Boolean(item.commentId && likedCommentIds[item.commentId])}
+                       commentLiked={
+                         Boolean(
+                           item.commentId &&
+                             resolveNotificationCommentLikeState(
+                               item.commentLikedByMe,
+                               likedCommentIds[item.commentId],
+                             ),
+                         )
+                       }
                       commentLikePending={Boolean(item.commentId && pendingCommentLikes[item.commentId])}
                       onOpen={() => {
                         markRead(item.id);

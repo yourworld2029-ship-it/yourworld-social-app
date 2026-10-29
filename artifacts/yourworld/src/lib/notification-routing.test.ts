@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveNotificationDestination } from "@/lib/notification-routing";
+import {
+  resolveNotificationCommentLikeState,
+  resolveNotificationDestination,
+} from "@/lib/notification-routing";
 
 const userA = "11111111-1111-4111-8111-111111111111";
 const userB = "22222222-2222-4222-8222-222222222222";
@@ -39,4 +42,11 @@ test("external and malformed notification URLs are rejected", () => {
   assert.equal(resolveNotificationDestination("//outside.example/u/123"), null);
   assert.equal(resolveNotificationDestination("/chat/not-a-thread"), null);
   assert.equal(resolveNotificationDestination("/reels"), null);
+});
+
+test("notification comment likes use the loaded state without a post-render flip", () => {
+  assert.equal(resolveNotificationCommentLikeState(true, undefined), true);
+  assert.equal(resolveNotificationCommentLikeState(false, undefined), false);
+  assert.equal(resolveNotificationCommentLikeState(true, false), false);
+  assert.equal(resolveNotificationCommentLikeState(false, true), true);
 });

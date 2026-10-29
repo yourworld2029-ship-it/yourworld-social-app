@@ -58,6 +58,8 @@ export type NotificationItem = {
   thumbnailUrl?: string | null;
   /** Source comment ID for inline comment actions. */
   commentId?: string;
+  /** Whether the current user has already liked the comment. */
+  commentLikedByMe?: boolean;
   /** Video source used to generate a real preview when no usable cover exists. */
   previewMediaUrl?: string | null;
   /** Cloudflare Stream UID used to load the video's real thumbnail. */
@@ -290,6 +292,35 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       created_at: string;
     }[],
   };
+  const notificationCommentIds = [
+    ...new Set([
+      ...rows.comments.map((comment) => comment.id),
+      ...rows.momentNotifications.flatMap((notification) => {
+        if (normalizeNotificationKind(notification.kind) !== "comment") return [];
+        const metadataCommentIdValue = [
+          notification.metadata?.comment_id,
+          notification.metadata?.target_comment_id,
+        ].find((value) => typeof value === "string" && Boolean(value.trim()));
+        const metadataCommentId =
+          typeof metadataCommentIdValue === "string"
+            ? metadataCommentIdValue.trim()
+            : null;
+        const entityCommentId =
+          notification.entity_type?.trim().toLowerCase() === "comment"
+            ? notification.entity_id
+            : null;
+        const commentId = metadataCommentId ?? entityCommentId;
+        return commentId ? [commentId] : [];
+      }),
+    ]),
+  ];
+  const commentLikesRequest = notificationCommentIds.length
+    ? supabase
+        .from("comment_likes")
+        .select("comment_id")
+        .eq("user_id", me)
+        .in("comment_id", notificationCommentIds)
+    : Promise.resolve({ data: [], error: null });
 
   const peerIds = [
     ...new Set([
@@ -405,6 +436,15 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     previewStreamId: postPreviewStreamIds.get(postId) ?? null,
     previewBucket: postPreviewBuckets.get(postId),
   });
+  const commentLikesResult = await commentLikesRequest;
+  if (commentLikesResult.error) {
+    console.warn("Could not load notification comment-like states.", commentLikesResult.error);
+  }
+  const likedCommentIds = new Set(
+    ((commentLikesResult.data ?? []) as Array<{ comment_id: string }>).map(
+      (row) => row.comment_id,
+    ),
+  );
   const contentLink = (
     id: string,
     kind: string | null | undefined,
@@ -609,6 +649,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       body: r.content,
       at: ts(r.created_at),
       commentId: r.id,
+      commentLikedByMe: likedCommentIds.has(r.id),
       to: postLink(r.post_id, true, r.id),
       ...postPreviewFor(r.post_id),
     });
@@ -701,6 +742,10 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       body: isMomentMention ? undefined : r.body ?? undefined,
       at: ts(r.created_at),
       commentId: kind === "comment" ? commentId || undefined : undefined,
+      commentLikedByMe:
+        kind === "comment" && commentId
+          ? likedCommentIds.has(commentId)
+          : undefined,
       to: notificationLink(r),
       canReshareMoment: isMomentMention,
       momentId: isMomentMention ? momentId : undefined,
@@ -800,6 +845,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         .channel(`yw-notifications-${Math.random().toString(36).slice(2)}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, reload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "comment_likes" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, reload)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, reload)
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, reload)

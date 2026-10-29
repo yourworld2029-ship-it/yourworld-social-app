@@ -11,6 +11,14 @@ export type NotificationDestination =
   | { kind: "moment"; momentId: string }
   | { kind: "notifications" };
 
+/** Server state is ready on the first notification render; local writes take precedence. */
+export function resolveNotificationCommentLikeState(
+  serverLiked: boolean | undefined,
+  optimisticOverride: boolean | undefined,
+) {
+  return optimisticOverride ?? serverLiked ?? false;
+}
+
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID}$`, "i");
 const DM_THREAD_PATTERN = new RegExp(`^dm_${UUID}_${UUID}$`, "i");
