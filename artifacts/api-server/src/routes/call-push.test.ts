@@ -209,7 +209,7 @@ test("Secret Lock suppresses an FCM call push before device lookup", async (t) =
   assert.equal(paths.length, 5);
 });
 
-test("FCM call pushes use data-only high-priority delivery with a short TTL", async (t) => {
+test("FCM call pushes use data-only high-priority delivery without collapsing calls", async (t) => {
   setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: privateKeyServiceAccount() });
   const baseUrl = await startServer(t);
   const captured: {
@@ -290,7 +290,6 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
   assert.deepEqual(message.android, {
     priority: "HIGH",
     ttl: "30s",
-    collapseKey: `yourworld-call-${callId}`,
   });
   assert.deepEqual(Object.keys(message).sort(), ["android", "data", "token"]);
 });
@@ -352,7 +351,6 @@ test("call dismissal reaches the other participant with a high-priority FCM data
   assert.deepEqual(message.android, {
     priority: "HIGH",
     ttl: "30s",
-    collapseKey: `yourworld-call-${callId}`,
   });
 });
 

@@ -336,7 +336,6 @@ async function sendFcmCall(
         android: {
           priority: "HIGH",
           ttl: "30s",
-          collapseKey: `yourworld-call-${call.id}`,
         },
       },
     }),
