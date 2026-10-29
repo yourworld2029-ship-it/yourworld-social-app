@@ -13,44 +13,44 @@ import {
   payoutCurrencyForCountry,
 } from "./payout-math";
 
-test("direct checkout adds a 2% gateway fee without reducing the creator split", () => {
+test("direct checkout uses the 80/20 share and adds a separate 2% gateway fee", () => {
   assert.deepEqual(computeDirectCheckout(500), {
     basePrice: 500,
     gatewayFee: 10,
     buyerTotal: 510,
-    platformShare: 75,
-    creatorShare: 425,
+    platformShare: 100,
+    creatorShare: 400,
   });
 });
 
 test("ads and direct sales use their configured creator shares", () => {
   const breakdown = computeBreakdown({ ads: 1000, course: 500, vip: 250 });
   assert.equal(breakdown.creatorBySource.ads, 700);
-  assert.equal(breakdown.creatorBySource.course, 425);
-  assert.equal(breakdown.creatorBySource.vip, 212.5);
-  assert.equal(breakdown.creatorShare, 1337.5);
-  assert.equal(breakdown.tds, 13.38);
-  assert.equal(breakdown.net, 1324.12);
+  assert.equal(breakdown.creatorBySource.course, 400);
+  assert.equal(breakdown.creatorBySource.vip, 200);
+  assert.equal(breakdown.creatorShare, 1300);
+  assert.equal(breakdown.tds, 13);
+  assert.equal(breakdown.net, 1287);
   assert.equal(MIN_PAYOUT, 5000);
 });
 
-test("paid video purchases preserve the full 15% platform cut", () => {
+test("paid video purchases preserve the full 20% platform cut", () => {
   assert.deepEqual(computeVideoPurchaseSplit(199), {
     totalAmount: 199,
-    platformFee: 29.85,
+    platformFee: 39.8,
     gatewayFee: 4.7,
-    creatorPayout: 164.45,
-    estimatedCreatorNet: 164,
+    creatorPayout: 154.5,
+    estimatedCreatorNet: 155,
   });
 });
 
 test("paid video purchases use an actual gateway fee when supplied", () => {
   assert.deepEqual(computeVideoPurchaseSplit(199, 3.5), {
     totalAmount: 199,
-    platformFee: 29.85,
+    platformFee: 39.8,
     gatewayFee: 3.5,
-    creatorPayout: 165.65,
-    estimatedCreatorNet: 164,
+    creatorPayout: 155.7,
+    estimatedCreatorNet: 155,
   });
 });
 

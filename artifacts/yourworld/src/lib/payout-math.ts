@@ -1,7 +1,8 @@
 /** Shared revenue-share, checkout, and tax rules for monetization surfaces. */
 
-export const CREATOR_SHARE = { ads: 0.7, course: 0.85, vip: 0.85 } as const;
-export const PLATFORM_SHARE = { ads: 0.3, course: 0.15, vip: 0.15 } as const;
+export const CREATOR_SHARE = { ads: 0.7, course: 0.8, vip: 0.8 } as const;
+export const PLATFORM_SHARE = { ads: 0.3, course: 0.2, vip: 0.2 } as const;
+export const VIDEO_PURCHASE_PLATFORM_SHARE = 0.2;
 export const PAYMENT_GATEWAY_SURCHARGE_RATE = 0.02;
 export const VIDEO_GATEWAY_FALLBACK_RATE = 0.0236;
 export const TDS_RATE = 0.01; // Section 194-O
@@ -101,7 +102,7 @@ export function computeVideoPurchaseSplit(
   actualGatewayFee?: number | null,
 ): VideoPurchaseSplit {
   const total = round2(Math.max(0, Number(totalAmount) || 0));
-  const platformFee = round2(total * PLATFORM_SHARE.course);
+  const platformFee = round2(total * VIDEO_PURCHASE_PLATFORM_SHARE);
   const gatewayFee =
     Number.isFinite(actualGatewayFee) && Number(actualGatewayFee) >= 0
       ? round2(Number(actualGatewayFee))
@@ -111,7 +112,9 @@ export function computeVideoPurchaseSplit(
     platformFee,
     gatewayFee,
     creatorPayout: round2(Math.max(0, total - platformFee - gatewayFee)),
-    estimatedCreatorNet: Math.round(total * 0.826),
+    estimatedCreatorNet: Math.round(
+      total * (1 - VIDEO_PURCHASE_PLATFORM_SHARE - VIDEO_GATEWAY_FALLBACK_RATE),
+    ),
   };
 }
 
